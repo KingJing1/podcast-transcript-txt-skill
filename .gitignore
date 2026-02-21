@@ -1,0 +1,12 @@
+.DS_Store
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.tmp
+*.log
+*.vtt
+*.srt
+*.meta.json
+output/
