@@ -1,8 +1,13 @@
-# podcast-transcript-txt-skill
+# Podcast Transcript TXT Skill
 
-把播客链接快速落地为可读 `txt` 的 Skill。目标是少试错、可复现、可分享。
+A lightweight, deterministic CLI to export podcast transcripts as clean `.txt` files.
 
-## 3 分钟上手（给别人分享时直接发这段）
+This project is designed for practical reliability:
+- Prefer official transcript sources when available.
+- Fallback to YouTube subtitles when needed.
+- Emit machine-readable diagnostics for every run.
+
+## TL;DR
 
 ```bash
 git clone https://github.com/KingJing1/podcast-transcript-txt-skill.git
@@ -12,42 +17,61 @@ python3 scripts/podcast_transcript_txt.py \
   --out-dir "/tmp/transcripts"
 ```
 
-输出在 `--out-dir`：
-
+Output:
 - `<title> [<id>].txt`
 - `<title> [<id>].meta.json`
 
-## 这个版本解决了什么
+## Features
 
-- 固定决策树，减少随机试错。
-- 优先官方 transcript 线索（YouTube 描述区外链）。
-- 回退 YouTube 字幕（`yt-dlp`）。
-- 自动做可读性质量检查，避免“超长文本墙”。
-- `meta.json` 增加 `attempts`，失败可追踪。
+- Deterministic source strategy (official first, subtitles second).
+- Multiple input types:
+  - YouTube URL / ID
+  - Episode title keywords
+  - X/Twitter status URL (best-effort)
+  - Official transcript page / JSON URL
+  - Scripod episode URL
+- Readability guardrails (quality checks + line splitting repair).
+- Structured run metadata (`resolver`, `quality`, `attempts`).
 
-## 支持矩阵
+## Requirements
 
-- `YouTube URL/ID`：稳定支持
-- `播客标题关键词`：稳定支持（通过 `ytsearch1`）
-- `X/Twitter 状态页`：best-effort（先解外链，失败再用文本 hint 检索）
-- `Scripod episode URL`：稳定支持（官方 API）
-- `官方 transcript 页/JSON URL`：稳定支持（如 Lex transcript、Substack transcription.json）
-
-## 依赖
-
-- `python3`（建议 3.10+）
+- Python 3.10+
 - `yt-dlp`
 
-## 快速开始
+Quick check:
 
-单个输入：
+```bash
+python3 --version
+yt-dlp --version
+```
+
+## Installation
+
+### Option A: Use as a normal CLI (recommended)
+
+```bash
+git clone https://github.com/KingJing1/podcast-transcript-txt-skill.git
+cd podcast-transcript-txt-skill
+```
+
+### Option B: Install as a Codex skill
+
+```bash
+mkdir -p ~/.codex/skills
+cp -R podcast-transcript-txt-skill ~/.codex/skills/podcast-transcript-txt
+```
+
+## Usage
+
+Single input:
+
 ```bash
 python3 scripts/podcast_transcript_txt.py \
   --input "https://www.youtube.com/watch?v=sXCKgEl9hBo" \
   --out-dir "/tmp/transcripts"
 ```
 
-批量输入：
+Batch input:
 
 ```bash
 python3 scripts/podcast_transcript_txt.py \
@@ -57,78 +81,64 @@ python3 scripts/podcast_transcript_txt.py \
   --out-dir "/tmp/transcripts"
 ```
 
-## 任何 Agent 都能用（重点）
+## Output Contract
 
-本项目本质是一个 CLI 脚本，不绑定任何特定 Agent。  
-只要你的 Agent 能执行 shell 命令，就能接入。
+For each successful input:
+- `*.txt`: cleaned transcript text
+- `*.meta.json`: execution metadata and diagnostics
 
-通用调用命令：
+Important `meta.json` fields:
+- `resolver`: which path produced the final result
+- `source`: final source URL
+- `status`: `ok` or `warn`
+- `quality`: line-level quality metrics
+- `attempts[]`: step-by-step attempts and failures
 
-```bash
-python3 scripts/podcast_transcript_txt.py \
-  --input "<链接或标题>" \
-  --out-dir "<输出目录>"
-```
+Exit code:
+- `0`: all inputs succeeded
+- `1`: at least one input failed
 
-通用返回约定：
+## How Resolution Works
 
-- 退出码 `0`：至少一个输入成功。
-- 退出码 `1`：有输入失败（错误会打印 `FAIL\t<input>\t<error>`）。
-- 每个输入产出一对文件：`*.txt` 和 `*.meta.json`。
+Priority order:
+1. Official transcript sources (including links found in YouTube descriptions).
+2. YouTube subtitles via `yt-dlp`.
 
-## 平台映射（示例）
+Notes:
+- X/Twitter is a resolver path, not a guaranteed transcript source.
+- Official transcript URL input is supported directly.
 
-- `Codex`：可当 Skill 使用，也可直接跑脚本。
-- `OpenClaw`：直接跑脚本命令并读取输出目录文件。
-- `Claude Code`：直接跑脚本命令并读取输出目录文件。
-- 其他 agent（Cursor Agent、Cline、自建 Agent）：同上，按 CLI 契约接入即可。
-- `Claude App/Web` 这类非终端产品：先在本地跑脚本，再上传 `txt`。
+## Agent Integration
 
-## 输出说明
+This is a CLI-first tool, so any agent that can execute shell commands can use it.
 
-`meta.json` 重点字段：
+Typical integrations:
+- Codex
+- OpenClaw
+- Claude Code
+- Cursor Agent / Cline / custom agent runners
 
-- `resolver`：最终走了哪条路径
-- `source`：最终来源 URL
-- `status`：`ok` / `warn`
-- `quality`：行数、平均行长、重复率等指标
-- `attempts[]`：每一步执行日志（stage / ok / detail / source）
+For non-terminal clients (for example Claude App/Web), run the CLI locally first, then upload the generated `.txt`.
 
-## 已知边界
+## Limitations
 
-- 不是 100% 成功：视频无字幕、平台限流、外链失效都可能失败。
-- X/Twitter 路径是 best-effort，不保证稳定。
-- 当前版本不内置本地 ASR（刻意保持轻量依赖）。
+- No tool can guarantee 100% transcript availability.
+- Failures can still happen due to missing captions, rate limits, or broken outbound links.
+- Local ASR is not bundled in this release (kept dependency-light by design).
 
-## 推荐分发方式
+## Troubleshooting
 
-1. GitHub 仓库链接（推荐）。  
-2. ZIP（一次性交付）。
+See:
+- [`INSTALL.md`](./INSTALL.md)
+- [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md)
 
-## 文档导航
+## Project Docs
 
-- 安装与接入：[`INSTALL.md`](./INSTALL.md)
-- 故障排查：[`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md)
-- 变更记录：[`CHANGELOG.md`](./CHANGELOG.md)
-- 贡献说明：[`CONTRIBUTING.md`](./CONTRIBUTING.md)
-- 来源策略：[`references/sources.md`](./references/sources.md)
+- [`SKILL.md`](./SKILL.md)
+- [`CHANGELOG.md`](./CHANGELOG.md)
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md)
+- [`references/sources.md`](./references/sources.md)
 
-## 仓库结构
+## License
 
-```text
-.
-├── SKILL.md
-├── README.md
-├── INSTALL.md
-├── TROUBLESHOOTING.md
-├── CHANGELOG.md
-├── CONTRIBUTING.md
-├── references/
-│   └── sources.md
-└── scripts/
-    └── podcast_transcript_txt.py
-```
-
-## 许可
-
-MIT License，见 [`LICENSE`](./LICENSE)。
+MIT. See [`LICENSE`](./LICENSE).
