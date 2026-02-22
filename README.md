@@ -13,7 +13,7 @@ This project is designed for practical reliability:
 git clone https://github.com/KingJing1/podcast-transcript-txt-skill.git
 cd podcast-transcript-txt-skill
 python3 scripts/podcast_transcript_txt.py \
-  --input "https://www.youtube.com/watch?v=sXCKgEl9hBo" \
+  --input "https://www.youtube.com/watch?v=aR20FWCCjAs" \
   --out-dir "/tmp/transcripts"
 ```
 
@@ -67,7 +67,7 @@ Single input:
 
 ```bash
 python3 scripts/podcast_transcript_txt.py \
-  --input "https://www.youtube.com/watch?v=sXCKgEl9hBo" \
+  --input "https://www.youtube.com/watch?v=aR20FWCCjAs" \
   --out-dir "/tmp/transcripts"
 ```
 
@@ -75,7 +75,7 @@ Batch input:
 
 ```bash
 python3 scripts/podcast_transcript_txt.py \
-  --input "https://www.youtube.com/watch?v=sXCKgEl9hBo" \
+  --input "https://www.youtube.com/watch?v=aR20FWCCjAs" \
   --input "https://www.youtube.com/watch?v=0-LAT4HjWPo" \
   --input "Naval podcast On Artificial Intelligence" \
   --out-dir "/tmp/transcripts"

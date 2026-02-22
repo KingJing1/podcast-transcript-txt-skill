@@ -55,7 +55,7 @@ Run (recommended stable usage):
 
 ```bash
 python3 /Users/jing/.codex/skills/podcast-transcript-txt/scripts/podcast_transcript_txt.py \
-  --input "https://www.youtube.com/watch?v=sXCKgEl9hBo" \
+  --input "https://www.youtube.com/watch?v=aR20FWCCjAs" \
   --input "播客标题关键词" \
   --out-dir "/Users/jing/Documents/New project"
 ```

@@ -17,7 +17,7 @@ yt-dlp --version
 ```bash
 cd podcast-transcript-txt-skill
 python3 scripts/podcast_transcript_txt.py \
-  --input "https://www.youtube.com/watch?v=sXCKgEl9hBo" \
+  --input "https://www.youtube.com/watch?v=aR20FWCCjAs" \
   --out-dir "/tmp/transcripts"
 ```
 
