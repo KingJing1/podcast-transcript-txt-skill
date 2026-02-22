@@ -1,22 +1,18 @@
 # 安装与接入
 
-## 方式 A：当作普通脚本使用（最简单）
+## 依赖
 
-### 1) 准备依赖
-
-- Python 3.10+
+- `python3`（建议 3.10+）
 - `yt-dlp`
 
-macOS 示例：
+校验：
 
 ```bash
 python3 --version
 yt-dlp --version
 ```
 
-如果没有 `yt-dlp`，可用 `pipx` 或包管理器安装。
-
-### 2) 运行脚本
+## 方式 A：当作普通脚本使用（推荐）
 
 ```bash
 cd podcast-transcript-txt-skill
@@ -27,23 +23,40 @@ python3 scripts/podcast_transcript_txt.py \
 
 ## 方式 B：当作 Codex Skill 使用
 
-把本仓库目录放到你的 skills 目录下，例如：
-
 ```bash
 mkdir -p ~/.codex/skills
 cp -R podcast-transcript-txt-skill ~/.codex/skills/podcast-transcript-txt
 ```
 
-然后在对话里让 agent 使用 `$podcast-transcript-txt`。
+在对话中触发 `$podcast-transcript-txt`。
 
-## 建议的输入策略
+## 方式 C：给任何 Agent 直接接入（推荐通用法）
 
-- 第一优先：YouTube 直链
-- 第二优先：标题关键词
-- X/Twitter 链接仅 best-effort，不作为稳定输入
+只要该 Agent 能执行 shell 命令，就直接调用：
 
-## 输出约定
+```bash
+python3 scripts/podcast_transcript_txt.py \
+  --input "<链接或标题>" \
+  --out-dir "<输出目录>"
+```
 
-- `*.txt`：清洗后的逐字稿
-- `*.meta.json`：输入来源、解析路径、状态信息
+接入时建议按以下契约处理：
 
+1. 读标准输出中的 `OK` / `FAIL` 行作为执行结果。  
+2. 成功后从 `--out-dir` 读取对应 `*.txt`。  
+3. 同时读取同名 `*.meta.json` 作为可观测日志（`attempts`、`quality`、`resolver`）。  
+
+## 给别人分发时的最小说明
+
+把以下三条发给对方即可：
+
+1. 安装 `python3` + `yt-dlp`。  
+2. 运行上面的命令并指定 `--input`。  
+3. 看输出目录里的 `*.txt` 和同名 `*.meta.json`。  
+
+## 输入建议
+
+- 优先：YouTube 直链
+- 可直接：官方 transcript 页/JSON 链接
+- 次优：标题关键词
+- X/Twitter：best-effort，不保证每条都能直达字幕源

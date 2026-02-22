@@ -7,7 +7,8 @@ description: Deterministic workflow to find and export full podcast transcripts 
 
 ## Overview
 Produce clean TXT transcripts for podcast/video episodes with a fixed decision tree.
-Prioritize official transcript sources first, then platform subtitles, then local ASR fallback.
+Prioritize official transcript sources first, then platform subtitles.
+This release does not bundle local ASR dependencies by default.
 
 ## Workflow Decision Tree
 
@@ -22,13 +23,14 @@ Prioritize official transcript sources first, then platform subtitles, then loca
 - Optional path: if input is X/Twitter URL, try outbound link resolution or compact title hint fallback.
 
 3. Fetch transcript in strict priority order.
-- Priority A: official transcript/API source from episode host.
+- Priority A: official transcript/API source from episode host (including YouTube description outbound links).
 - Priority B: platform subtitles via `yt-dlp` (`youtube:player_client=android`).
-- Priority C: local ASR fallback only when A/B unavailable.
+- Priority C (optional, not bundled): local ASR fallback when A/B unavailable.
 
 4. Clean and export.
 - Remove timestamp markup and HTML tags.
 - Collapse rolling-caption duplication.
+- Run readability quality checks; if needed, apply aggressive secondary splitting.
 - Keep paragraph-level readability.
 - Write one TXT file per input item.
 
@@ -44,6 +46,7 @@ Prioritize official transcript sources first, then platform subtitles, then loca
 
 3. Failure reporting contract.
 - Return: failed stage, exact error type, and next action already attempted.
+- Persist each attempt in `meta.json` (`attempts[]`).
 - If blocked after A/B/C, return one minimal user command to unblock.
 
 ## Quick Start
@@ -73,4 +76,3 @@ Outputs:
 ## Scripts
 
 - Main executor: `scripts/podcast_transcript_txt.py`
-

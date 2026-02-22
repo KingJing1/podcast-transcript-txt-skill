@@ -27,7 +27,7 @@ import tempfile
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -36,10 +36,36 @@ UA = (
 
 YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 URL_RE = re.compile(r"https?://[^\s\"'<>]+")
+TRANSCRIPTION_JSON_RE = re.compile(r"https://[^\"'<> ]*transcription\.json[^\"'<> ]*", re.I)
 
 
 def run(cmd: List[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def compact_ws(s: str) -> str:
+    return re.sub(r"\s+", " ", s or "").strip()
+
+
+def append_with_spacing(base: str, piece: str) -> str:
+    if not base:
+        return piece
+    if not piece:
+        return base
+    if re.match(r"^[,.;:!?，。！？；：、\)\]\"'”’]", piece):
+        return base + piece
+    if base[-1].isalnum() and piece[0].isalnum():
+        return base + " " + piece
+    return base + piece
+
+
+def dedup_consecutive(lines: List[str]) -> List[str]:
+    out: List[str] = []
+    for x in lines:
+        if out and out[-1] == x:
+            continue
+        out.append(x)
+    return out
 
 
 def is_url(s: str) -> bool:
@@ -53,11 +79,23 @@ def sanitize_filename(name: str) -> str:
 
 
 def seconds_to_hms(sec: float) -> str:
-    t = int(sec)
+    t = int(max(0, sec))
     h = t // 3600
     m = (t % 3600) // 60
     s = t % 60
     return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def log_attempt(meta: Dict[str, Any], stage: str, ok: bool, detail: str, source: Optional[str] = None) -> None:
+    attempts = meta.setdefault("attempts", [])
+    entry: Dict[str, Any] = {
+        "stage": stage,
+        "ok": ok,
+        "detail": compact_ws(detail)[:260],
+    }
+    if source:
+        entry["source"] = source
+    attempts.append(entry)
 
 
 def http_get(url: str, timeout: int = 25) -> str:
@@ -69,12 +107,21 @@ def http_get(url: str, timeout: int = 25) -> str:
 def find_ytdlp() -> Optional[str]:
     candidates = [
         os.getenv("YT_DLP_PATH"),
-        str(Path.home() / "Library/Python/3.9/bin/yt-dlp"),
         shutil.which("yt-dlp"),
+        str(Path.home() / ".local/bin/yt-dlp"),
+        str(Path.home() / "Library/Python/3.12/bin/yt-dlp"),
+        str(Path.home() / "Library/Python/3.11/bin/yt-dlp"),
+        str(Path.home() / "Library/Python/3.10/bin/yt-dlp"),
+        str(Path.home() / "Library/Python/3.9/bin/yt-dlp"),
     ]
+    seen = set()
     for c in candidates:
-        if c and Path(c).exists():
-            return c
+        if not c or c in seen:
+            continue
+        seen.add(c)
+        p = Path(c).expanduser()
+        if p.exists() and os.access(p, os.X_OK):
+            return str(p)
     return None
 
 
@@ -109,34 +156,45 @@ def youtube_url_from_id(video_id: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
-def youtube_info(ytdlp: str, target: str) -> Tuple[str, str, str]:
+def youtube_metadata(ytdlp: str, target: str) -> Dict[str, str]:
     cmd = [
         ytdlp,
         "--extractor-args",
         "youtube:player_client=android",
         "--skip-download",
-        "--print",
-        "%(id)s\t%(title)s\t%(webpage_url)s",
+        "--dump-single-json",
         target,
     ]
     p = run(cmd)
     if p.returncode != 0:
-        raise RuntimeError(f"yt-dlp info failed: {p.stderr.strip()}")
-    line = (p.stdout or "").strip().splitlines()
-    if not line:
-        raise RuntimeError("yt-dlp info returned empty output")
-    parts = line[0].split("\t")
-    if len(parts) < 3:
-        raise RuntimeError(f"unexpected yt-dlp info format: {line[0]}")
-    return parts[0], parts[1], parts[2]
+        raise RuntimeError(f"yt-dlp metadata failed: {compact_ws(p.stderr)}")
+    try:
+        data = json.loads(p.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"invalid yt-dlp json: {e}") from e
+    if not isinstance(data, dict):
+        raise RuntimeError("unexpected yt-dlp metadata payload type")
+
+    video_id = str(data.get("id") or "").strip()
+    title = str(data.get("title") or "").strip()
+    page_url = str(data.get("webpage_url") or "").strip()
+    description = data.get("description") or ""
+    if not (video_id and title and page_url):
+        raise RuntimeError("yt-dlp metadata missing id/title/webpage_url")
+    return {
+        "id": video_id,
+        "title": title,
+        "webpage_url": page_url,
+        "description": str(description),
+    }
 
 
-def resolve_title_to_youtube(ytdlp: str, title: str) -> Tuple[str, str, str]:
+def resolve_title_to_youtube(ytdlp: str, title: str) -> Dict[str, str]:
     queries = [f"ytsearch1:{title} podcast", f"ytsearch1:{title}"]
     last_err = ""
     for q in queries:
         try:
-            return youtube_info(ytdlp, q)
+            return youtube_metadata(ytdlp, q)
         except Exception as e:
             last_err = str(e)
     raise RuntimeError(f"title resolve failed: {last_err}")
@@ -158,7 +216,7 @@ def parse_vtt_cues(vtt_text: str) -> List[str]:
         text = html.unescape(text)
         text = re.sub(r"\[(?:music|Music|applause|Applause)\]", " ", text)
         text = text.replace("\u200b", " ")
-        text = re.sub(r"\s+", " ", text).strip()
+        text = compact_ws(text)
         if text:
             cues.append(text)
         buf = []
@@ -185,11 +243,7 @@ def parse_vtt_cues(vtt_text: str) -> List[str]:
 
 
 def merge_cues_with_overlap(cues: List[str]) -> str:
-    """Merge rolling captions by suffix-prefix overlap.
-
-    YouTube auto-captions often repeat partial text across cues.
-    This function keeps one continuous stream by appending only non-overlap.
-    """
+    """Merge rolling captions by suffix-prefix overlap."""
     acc = ""
     for cue in cues:
         cue = cue.strip()
@@ -213,44 +267,109 @@ def merge_cues_with_overlap(cues: List[str]) -> str:
         tail = cue[overlap:]
         if not tail:
             continue
-
-        need_space = (
-            acc
-            and tail
-            and acc[-1].isalnum()
-            and tail[0].isalnum()
-            and not acc.endswith(" ")
-        )
-        if need_space:
-            acc += " "
-        acc += tail
+        acc = append_with_spacing(acc, tail)
 
     acc = re.sub(r"\s+([,.!?;:])", r"\1", acc)
     acc = re.sub(r"([，。！？；：、])\s+", r"\1", acc)
-    acc = re.sub(r"\s+", " ", acc).strip()
+    acc = compact_ws(acc)
     return acc
+
+
+def hard_wrap(text: str, width: int = 200) -> List[str]:
+    out: List[str] = []
+    cur = text.strip()
+    while len(cur) > width:
+        cut = cur.rfind(" ", 0, width + 1)
+        if cut <= 0:
+            cut = width
+        out.append(cur[:cut].strip())
+        cur = cur[cut:].strip()
+    if cur:
+        out.append(cur)
+    return out
 
 
 def split_lines(text: str) -> List[str]:
     if not text:
         return []
-
     text = text.replace(">>", "\n>>")
     parts = [p.strip() for p in text.splitlines() if p.strip()]
     out: List[str] = []
     for part in parts:
-        segs = re.split(r"(?<=[.!?。！？])\s+", part)
-        for s in segs:
-            s = s.strip()
-            if s:
+        segs = re.split(r"(?<=[.!?。！？])\s*", part)
+        for seg in segs:
+            s = seg.strip()
+            if not s:
+                continue
+            if len(s) > 260:
+                out.extend(hard_wrap(s, width=220))
+            else:
                 out.append(s)
+    return dedup_consecutive(out)
 
-    dedup: List[str] = []
-    for x in out:
-        if dedup and x == dedup[-1]:
+
+def aggressive_split_lines(text: str) -> List[str]:
+    text = compact_ws(text)
+    if not text:
+        return []
+    primary = re.split(r"(?<=[.!?。！？])", text)
+    out: List[str] = []
+    for seg in primary:
+        seg = seg.strip()
+        if not seg:
             continue
-        dedup.append(x)
-    return dedup
+        if len(seg) > 260:
+            secondary = re.split(r"(?<=[,，;；:：])", seg)
+            for s in secondary:
+                s = s.strip()
+                if not s:
+                    continue
+                if len(s) > 260:
+                    out.extend(hard_wrap(s, width=200))
+                else:
+                    out.append(s)
+        else:
+            out.append(seg)
+    return dedup_consecutive(out)
+
+
+def quality_metrics(lines: List[str]) -> Dict[str, float]:
+    if not lines:
+        return {
+            "line_count": 0,
+            "total_chars": 0,
+            "avg_line_len": 0.0,
+            "max_line_len": 0,
+            "unique_ratio": 0.0,
+            "long_lines_over_260": 0,
+        }
+    total = sum(len(x) for x in lines)
+    return {
+        "line_count": len(lines),
+        "total_chars": total,
+        "avg_line_len": round(total / len(lines), 2),
+        "max_line_len": max(len(x) for x in lines),
+        "unique_ratio": round(len(set(lines)) / len(lines), 4),
+        "long_lines_over_260": sum(1 for x in lines if len(x) > 260),
+    }
+
+
+def is_low_quality(metrics: Dict[str, float]) -> bool:
+    return bool(
+        (metrics["line_count"] <= 8 and metrics["total_chars"] >= 2000)
+        or metrics["max_line_len"] >= 900
+        or metrics["avg_line_len"] >= 240
+        or (metrics["line_count"] >= 30 and metrics["unique_ratio"] < 0.55)
+    )
+
+
+def quality_score(metrics: Dict[str, float]) -> float:
+    return (
+        metrics["line_count"] * 3
+        - metrics["avg_line_len"]
+        - metrics["long_lines_over_260"] * 40
+        + metrics["unique_ratio"] * 50
+    )
 
 
 def choose_vtt(video_id: str, workdir: Path) -> Optional[Path]:
@@ -338,6 +457,245 @@ def extract_urls(text: str) -> List[str]:
     return out
 
 
+def normalize_speaker(value: Any) -> str:
+    s = str(value).strip() if value is not None else ""
+    if not s:
+        return ""
+    if re.fullmatch(r"\d+", s):
+        return f"Speaker {s}"
+    return s
+
+
+def clean_html_fragment(raw: str) -> str:
+    text = re.sub(r"<br\s*/?>", " ", raw, flags=re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text)
+    text = text.replace("\u200b", " ")
+    return compact_ws(text)
+
+
+def parse_substack_transcription_data(payload: Any) -> List[str]:
+    lines: List[str] = []
+
+    if isinstance(payload, list):
+        cur_speaker = ""
+        cur_start = 0.0
+        buf = ""
+
+        def flush() -> None:
+            nonlocal cur_speaker, cur_start, buf
+            text = compact_ws(buf)
+            if text:
+                spk = cur_speaker or "Speaker"
+                lines.append(f"[{seconds_to_hms(cur_start)}] {spk}: {text}")
+            cur_speaker = ""
+            cur_start = 0.0
+            buf = ""
+
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            piece = compact_ws(str(item.get("text") or ""))
+            if not piece:
+                continue
+            start = float(item.get("start") or 0.0)
+            spk = normalize_speaker(item.get("speaker"))
+            if not spk:
+                words = item.get("words")
+                if isinstance(words, list):
+                    for w in words:
+                        if not isinstance(w, dict):
+                            continue
+                        spk = normalize_speaker(w.get("speaker"))
+                        if spk:
+                            break
+            if not spk:
+                spk = cur_speaker or "Speaker"
+
+            if not buf:
+                cur_speaker = spk
+                cur_start = start
+                buf = piece
+            elif spk != cur_speaker:
+                flush()
+                cur_speaker = spk
+                cur_start = start
+                buf = piece
+            else:
+                buf = append_with_spacing(buf, piece)
+
+            if re.search(r"[.!?。！？][\"'”’)]?$", piece) or len(buf) >= 260:
+                flush()
+
+        flush()
+        return dedup_consecutive(lines)
+
+    if isinstance(payload, dict) and isinstance(payload.get("segments"), list):
+        speakers = payload.get("speakers", {}) or {}
+        for seg in payload.get("segments", []):
+            if not isinstance(seg, dict):
+                continue
+            sid = seg.get("speaker")
+            spk = speakers.get(str(sid)) if sid is not None else None
+            if not spk:
+                spk = normalize_speaker(sid) or "Speaker"
+            sents = seg.get("sentences", []) or []
+            if not sents:
+                continue
+            start = float((sents[0] or {}).get("start", 0.0) or 0.0)
+            text = compact_ws("".join((s.get("text") or "") for s in sents if isinstance(s, dict)))
+            if text:
+                lines.append(f"[{seconds_to_hms(start)}] {spk}: {text}")
+        return dedup_consecutive(lines)
+
+    raise RuntimeError("unsupported transcription.json payload schema")
+
+
+def parse_substack_transcription_json(url: str) -> List[str]:
+    payload = json.loads(http_get(url))
+    lines = parse_substack_transcription_data(payload)
+    if not lines:
+        raise RuntimeError("substack transcription.json parsed empty")
+    return lines
+
+
+def extract_transcription_json_urls(text: str) -> List[str]:
+    out: List[str] = []
+    seen = set()
+    for m in TRANSCRIPTION_JSON_RE.findall(text or ""):
+        u = html.unescape(m).rstrip("\\")
+        u = u.rstrip(".,;)]}>")
+        if u in seen:
+            continue
+        seen.add(u)
+        out.append(u)
+    return out
+
+
+def parse_lex_transcript_html(page_html: str) -> List[str]:
+    lines: List[str] = []
+    paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", page_html, flags=re.I | re.S)
+
+    for p in paragraphs:
+        speaker = ""
+        spk_match = re.search(r"<strong[^>]*>\s*([^<]{1,80})\s*</strong>", p, flags=re.I)
+        if spk_match:
+            candidate = compact_ws(spk_match.group(1))
+            if re.fullmatch(r"[A-Za-z][A-Za-z .'\-]{0,70}", candidate):
+                speaker = candidate
+
+        ts_match = re.search(r"\b(\d{2}:\d{2}:\d{2})\b", p)
+        ts = ts_match.group(1) if ts_match else "00:00:00"
+
+        text = p
+        if spk_match:
+            text = text.replace(spk_match.group(0), " ", 1)
+        text = clean_html_fragment(text)
+        text = re.sub(r"^[\-–—:：\s]+", "", text)
+        if not text:
+            continue
+
+        if speaker:
+            lines.append(f"[{ts}] {speaker}: {text}")
+            continue
+
+        generic = re.match(r"^([A-Z][A-Za-z .'\-]{1,50}):\s+(.+)$", text)
+        if generic:
+            lines.append(f"[{ts}] {generic.group(1)}: {generic.group(2)}")
+
+    lines = dedup_consecutive(lines)
+    if len(lines) < 20:
+        raise RuntimeError("lex transcript parse result too small")
+    return lines
+
+
+def parse_official_transcript_url(url: str) -> Tuple[List[str], str]:
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.netloc.lower()
+
+    if "scripod.com" in host and "scripod.com/episode/" in url:
+        _eid, _title, lines = parse_scripod_transcript(url)
+        return lines, f"https://scripod.com/api/transcript/{scripod_episode_id(url)}"
+
+    if "transcription.json" in url:
+        return parse_substack_transcription_json(url), url
+
+    page_html = http_get(url)
+
+    for candidate in extract_transcription_json_urls(page_html):
+        try:
+            return parse_substack_transcription_json(candidate), candidate
+        except Exception:
+            continue
+
+    if "lexfridman.com" in host and "transcript" in parsed.path:
+        return parse_lex_transcript_html(page_html), url
+
+    raise RuntimeError("unsupported official transcript format")
+
+
+def stable_id_from_url(url: str) -> str:
+    p = urllib.parse.urlparse(url)
+    slug = Path(p.path).stem or p.netloc or "official"
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", slug).strip("-")
+    return slug[:40] or "official"
+
+
+def official_links_from_description(description: str) -> List[str]:
+    urls = extract_urls(description or "")
+
+    def score(u: str) -> int:
+        pu = urllib.parse.urlparse(u)
+        host = pu.netloc.lower()
+        path = pu.path.lower()
+        s = 0
+        if "transcription.json" in u:
+            s += 300
+        if "lexfridman.com" in host and "transcript" in path:
+            s += 260
+        if "dwarkesh.com" in host:
+            s += 230
+        if "scripod.com" in host and "/episode/" in path:
+            s += 220
+        if "substack" in host:
+            s += 180
+        if "transcript" in path:
+            s += 120
+        if "podcast" in path:
+            s += 40
+        return s
+
+    ranked = sorted(urls, key=score, reverse=True)
+    out: List[str] = []
+    seen = set()
+    for u in ranked:
+        if u in seen:
+            continue
+        seen.add(u)
+        if score(u) > 0:
+            out.append(u)
+    return out[:12]
+
+
+def run_subtitle_pipeline(ytdlp: str, page_url: str, real_id: str, meta: Dict[str, Any]) -> Tuple[List[str], Dict[str, float]]:
+    with tempfile.TemporaryDirectory(prefix="podcast_sub_") as td:
+        vtt = download_youtube_vtt(ytdlp, page_url, real_id, Path(td))
+        cues = parse_vtt_cues(vtt.read_text(encoding="utf-8", errors="ignore"))
+        merged_text = merge_cues_with_overlap(cues)
+        lines = split_lines(merged_text)
+        metrics = quality_metrics(lines)
+        if is_low_quality(metrics):
+            repaired = aggressive_split_lines(merged_text)
+            repaired_metrics = quality_metrics(repaired)
+            if quality_score(repaired_metrics) > quality_score(metrics):
+                log_attempt(meta, "B_quality_repair", True, "applied aggressive splitter to improve readability")
+                lines = repaired
+                metrics = repaired_metrics
+            else:
+                log_attempt(meta, "B_quality_repair", False, "aggressive splitter did not improve quality")
+    return lines, metrics
+
+
 def extract_x_status_id(url: str) -> Optional[str]:
     try:
         path = urllib.parse.urlparse(url).path
@@ -389,7 +747,7 @@ def x_text_hint(url: str) -> str:
 
     cleaned = re.sub(r"https?://\S+", " ", raw_text)
     cleaned = re.sub(r"@\w+", " ", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = compact_ws(cleaned)
     first_sentence = re.split(r"[.!?。！？]", cleaned)[0].strip()
     if len(first_sentence) > 90:
         first_sentence = first_sentence[:90].rsplit(" ", 1)[0].strip()
@@ -403,7 +761,7 @@ def x_text_hint(url: str) -> str:
         parts.append(first_sentence)
     parts.append("podcast interview")
 
-    query = re.sub(r"\s+", " ", " ".join(parts)).strip()
+    query = compact_ws(" ".join(parts))
     return query[:180]
 
 
@@ -462,28 +820,102 @@ def write_outputs(out_dir: Path, title: str, stable_id: str, lines: List[str], m
     return txt_path, meta_path
 
 
+def process_youtube_target(ytdlp: str, target: str, out_dir: Path, meta: Dict[str, Any], resolver_name: str) -> Tuple[Path, Path]:
+    info = youtube_metadata(ytdlp, target)
+    real_id = info["id"]
+    title = info["title"]
+    page_url = info["webpage_url"]
+    description = info.get("description", "")
+
+    meta["source"] = page_url
+    log_attempt(meta, "yt_metadata", True, f"resolved video {real_id}", source=page_url)
+
+    # Priority A: official transcript links in YouTube description.
+    links = official_links_from_description(description)
+    if not links:
+        log_attempt(meta, "A_official", False, "no official transcript links found in description")
+    else:
+        for link in links:
+            try:
+                lines, actual_source = parse_official_transcript_url(link)
+                m = quality_metrics(lines)
+                if not lines:
+                    raise RuntimeError("official transcript parsed empty")
+                if is_low_quality(m):
+                    log_attempt(meta, "A_official", False, "official transcript quality is too low", source=actual_source)
+                    continue
+                meta["resolver"] = "official-link"
+                meta["source"] = actual_source
+                meta["quality"] = m
+                log_attempt(meta, "A_official", True, f"resolved via {urllib.parse.urlparse(link).netloc}", source=actual_source)
+                return write_outputs(out_dir, title, real_id, lines, meta)
+            except Exception as e:
+                log_attempt(meta, "A_official", False, str(e), source=link)
+
+    # Priority B: platform subtitles.
+    lines, metrics = run_subtitle_pipeline(ytdlp, page_url, real_id, meta)
+    meta["resolver"] = resolver_name
+    meta["quality"] = metrics
+    if is_low_quality(metrics):
+        meta["status"] = "warn"
+        meta["notes"].append("subtitle transcript quality is low; try official transcript links or rerun later")
+        log_attempt(meta, "B_subtitle", False, f"low quality output: {metrics}", source=page_url)
+    else:
+        log_attempt(meta, "B_subtitle", True, f"subtitle extraction ok: {metrics}", source=page_url)
+    return write_outputs(out_dir, title, real_id, lines, meta)
+
+
 def process_item(raw: str, out_dir: Path, ytdlp: Optional[str]) -> Tuple[Path, Path]:
-    meta = {
+    meta: Dict[str, Any] = {
         "input": raw,
         "resolver": None,
         "source": None,
         "status": "ok",
         "notes": [],
+        "attempts": [],
     }
 
     raw = raw.strip()
 
-    # A) Known transcript host
+    # A) Direct known transcript host.
     if is_url(raw) and "scripod.com/episode/" in raw:
-        eid, title, lines = parse_scripod_transcript(raw)
-        meta["resolver"] = "scripod-api"
-        meta["source"] = f"https://scripod.com/api/transcript/{eid}"
-        return write_outputs(out_dir, title, eid, lines, meta)
+        try:
+            eid, title, lines = parse_scripod_transcript(raw)
+            m = quality_metrics(lines)
+            meta["resolver"] = "scripod-api"
+            meta["source"] = f"https://scripod.com/api/transcript/{eid}"
+            meta["quality"] = m
+            log_attempt(meta, "A_direct_scripod", True, f"parsed {m['line_count']} lines", source=meta["source"])
+            return write_outputs(out_dir, title, eid, lines, meta)
+        except Exception as e:
+            log_attempt(meta, "A_direct_scripod", False, str(e), source=raw)
+            raise
 
-    # B) X/Twitter indirection
+    # A2) Direct official transcript page/json URL.
+    if is_url(raw) and not ("x.com/" in raw or "twitter.com/" in raw) and not extract_youtube_id(raw):
+        try:
+            lines, actual_source = parse_official_transcript_url(raw)
+            m = quality_metrics(lines)
+            parsed = urllib.parse.urlparse(raw)
+            title_guess = Path(parsed.path).stem or parsed.netloc or "official transcript"
+            title_guess = compact_ws(title_guess.replace("-", " ").replace("_", " "))
+            meta["resolver"] = "official-link-direct"
+            meta["source"] = actual_source
+            meta["quality"] = m
+            if is_low_quality(m):
+                meta["status"] = "warn"
+                meta["notes"].append("official transcript parsed but readability is below threshold")
+                log_attempt(meta, "A_direct_official", False, f"low quality output: {m}", source=actual_source)
+            else:
+                log_attempt(meta, "A_direct_official", True, f"parsed {m['line_count']} lines", source=actual_source)
+            return write_outputs(out_dir, title_guess, stable_id_from_url(raw), lines, meta)
+        except Exception as e:
+            log_attempt(meta, "A_direct_official", False, str(e), source=raw)
+
+    # B) X/Twitter indirection.
     if is_url(raw) and ("x.com/" in raw or "twitter.com/" in raw):
         links = links_from_x(raw)
-        meta["resolver"] = "x-outbound-links"
+        log_attempt(meta, "x_resolve", True, f"discovered outbound links: {len(links)}", source=raw)
 
         direct = None
         for u in links:
@@ -494,41 +926,32 @@ def process_item(raw: str, out_dir: Path, ytdlp: Optional[str]) -> Tuple[Path, P
         if direct:
             meta["notes"].append(f"resolved direct transcript/subtitle source: {direct}")
             raw = direct
+            log_attempt(meta, "x_resolve", True, "resolved to direct source", source=direct)
         else:
             hint = x_text_hint(raw)
             if hint and ytdlp:
                 preview = ", ".join(links[:2]) if links else "none"
                 meta["notes"].append(f"x outbound links are not directly supported ({preview}); fallback to title search from tweet text")
                 raw = hint
+                log_attempt(meta, "x_resolve", True, "fallback to title hint", source=raw)
             else:
+                log_attempt(meta, "x_resolve", False, "no usable direct source and no title hint", source=raw)
                 raise RuntimeError("x status resolved no usable transcript source and no searchable text hint")
 
-    # C) YouTube URL or ID
+    # C) YouTube URL or ID.
     vid = extract_youtube_id(raw)
     if vid and ytdlp:
         video_url = youtube_url_from_id(vid)
-        real_id, title, page_url = youtube_info(ytdlp, video_url)
-        meta["resolver"] = "youtube-id"
-        meta["source"] = page_url
-        with tempfile.TemporaryDirectory(prefix="podcast_sub_") as td:
-            vtt = download_youtube_vtt(ytdlp, page_url, real_id, Path(td))
-            cues = parse_vtt_cues(vtt.read_text(encoding="utf-8", errors="ignore"))
-            merged_text = merge_cues_with_overlap(cues)
-            lines = split_lines(merged_text)
-        return write_outputs(out_dir, title, real_id, lines, meta)
+        return process_youtube_target(ytdlp, video_url, out_dir, meta, resolver_name="youtube-id")
 
-    # D) Plain title -> YouTube
+    # D) Plain title -> YouTube.
     if ytdlp and not is_url(raw):
-        real_id, title, page_url = resolve_title_to_youtube(ytdlp, raw)
-        meta["resolver"] = "title->ytsearch1"
-        meta["source"] = page_url
-        with tempfile.TemporaryDirectory(prefix="podcast_sub_") as td:
-            vtt = download_youtube_vtt(ytdlp, page_url, real_id, Path(td))
-            cues = parse_vtt_cues(vtt.read_text(encoding="utf-8", errors="ignore"))
-            merged_text = merge_cues_with_overlap(cues)
-            lines = split_lines(merged_text)
-        return write_outputs(out_dir, title, real_id, lines, meta)
+        info = resolve_title_to_youtube(ytdlp, raw)
+        log_attempt(meta, "title_search", True, f"matched video {info['id']}", source=info["webpage_url"])
+        return process_youtube_target(ytdlp, info["webpage_url"], out_dir, meta, resolver_name="title->ytsearch1")
 
+    if not ytdlp:
+        raise RuntimeError("yt-dlp not found; only direct official transcript URLs are supported")
     raise RuntimeError("no deterministic resolver matched this input")
 
 
@@ -560,4 +983,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -7,8 +7,12 @@ Use official transcript pages/APIs when available.
 - `scripod.com/episode/<id>`
   - API: `https://scripod.com/api/transcript/<id>`
   - Reliability: high
-- Official podcast websites with full transcript pages
-  - Reliability: medium-high (depends on paywall/login)
+- YouTube description outbound links (auto-detected)
+  - Typical hosts:
+    - `dwarkesh.com` / Substack-backed transcript pages
+    - `lexfridman.com/*-transcript`
+    - Direct `substackcdn.com/.../transcription.json`
+  - Reliability: medium-high (depends on host availability / paywall)
 
 Why first:
 - Highest semantic accuracy
@@ -32,21 +36,13 @@ Common errors and deterministic handling:
 - `429 Too Many Requests`: back off, then retry with narrower language list
 - Missing zh subtitles: fallback to `en-orig/en` and continue
 
-## Priority C: Local ASR fallback
+## Priority C: Local ASR fallback (not included in current script)
 
-Use only when A/B fail.
-
-Recommended local tools:
-- `faster-whisper`
-- `whisper`
-
-Tradeoffs:
-- Slower and compute-heavy
-- Better than no transcript when subtitles are unavailable
+Current release intentionally keeps dependencies minimal (`python3 + yt-dlp`).
+If needed in your fork, add optional local ASR (`faster-whisper` / `whisper`) as an explicit opt-in path.
 
 ## Security Guardrails
 
 - Avoid browser cookie extraction by default.
 - If cookies are required, use temporary local scope only and avoid logging secrets.
 - Keep transcript processing local when user privacy matters.
-

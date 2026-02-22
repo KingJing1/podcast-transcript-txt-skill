@@ -1,52 +1,58 @@
 # Troubleshooting
 
-## 1) `Repository not found`（git push 时）
+## 1) 运行后没有产出文件
 
-原因：
-- 远端仓库不存在，或仓库名不一致。
+先看标准输出是否有 `FAIL <input> <error>`，再检查：
 
-处理：
-- 先在 GitHub 创建同名仓库，再执行：
+```bash
+ls -lh /你的输出目录
+```
+
+## 2) YouTube 报 `PO token` / `429` / 网络失败
+
+已内置 `youtube:player_client=android`。仍失败时建议：
+
+1. 间隔几分钟重试。  
+2. 换成同内容的官方频道视频链接。  
+3. 降低并发，一次只跑 1-2 个输入。  
+
+## 3) 文本可读性很差（超长行、像一堵墙）
+
+脚本已加入质量门禁和二次切分。请先看 `meta.json` 的：
+
+- `status` 是否为 `warn`
+- `quality` 指标（`avg_line_len`、`max_line_len`）
+- `attempts` 是否出现 `B_quality_repair`
+
+## 4) X/Twitter 链接失败
+
+这是 best-effort 路径。常见情况是帖子只有外链平台（如 Spotify）而无可抓字幕来源。  
+建议直接改成：
+
+- YouTube 链接
+- 或“节目名 + 嘉宾名”标题输入
+
+## 5) 如何快速判断走了哪条路径
+
+打开同名 `*.meta.json`：
+
+- `resolver=official-link`：已走官方 transcript 外链  
+- `resolver=youtube-id` / `title->ytsearch1`：走字幕回退  
+- `attempts[]`：每一步的成功/失败原因  
+
+## 6) Git 推送常见问题
+
+`Repository not found`：
 
 ```bash
 git remote -v
-git push -u origin main
 ```
 
-## 2) `Host key verification failed`
+确认远端仓库已创建且名称一致后再推送。
 
-原因：
-- 本机未信任 GitHub 主机指纹。
-
-处理：
+`Host key verification failed`：
 
 ```bash
 ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
 ssh -T git@github.com
 ```
-
-## 3) YouTube 报 `PO token` / `429` / 无字幕
-
-处理建议：
-- 优先使用脚本内置的 `youtube:player_client=android` 路径。
-- 更换输入链接，优先官方频道视频源。
-- 重试时避免短时间内高频请求。
-
-## 4) 标题检索失败（`ytsearch` 无结果）
-
-处理建议：
-- 缩短关键词，只保留“节目名 + 嘉宾名”。
-- 直接改用 YouTube 直链。
-
-## 5) 输出文本重复严重
-
-说明：
-- 本项目已对 rolling captions 做 overlap 合并。
-- 若仍遇到重复，可在 issue 附上原始视频链接与样例片段。
-
-## 6) X/Twitter 链接不稳定
-
-说明：
-- X 帖子可能只给 Spotify 等外链，不保证可直达字幕源。
-- 这是可选路径，建议回退为 YouTube 链接或标题输入。
-
