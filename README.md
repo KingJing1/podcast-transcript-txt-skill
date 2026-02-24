@@ -1,6 +1,7 @@
 # Podcast Transcript TXT Skill
 
 A lightweight, deterministic CLI to export podcast transcripts as clean `.txt` files.
+Turn any podcast source into clean TXT — YouTube, episode webpages, Xiaoyuzhou, Apple Podcasts, X links, or just a title.
 
 This project is designed for practical reliability:
 - Prefer official transcript sources when available.
@@ -27,6 +28,9 @@ Output:
 - Deterministic source strategy (official first, subtitles second, ASR third).
 - Multiple input types:
   - YouTube URL / ID
+  - Episode webpages (e.g. Xiaoyuzhou)
+  - Direct audio URLs
+  - Apple Podcasts episode discovery from plain title
   - Episode title keywords
   - X/Twitter status URL (best-effort)
   - Official transcript page / JSON URL

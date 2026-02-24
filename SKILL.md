@@ -1,31 +1,31 @@
 ---
 name: podcast-transcript-txt
-description: Deterministic workflow to find and export full podcast transcripts as cleaned TXT files from YouTube URLs, X/Twitter links, podcast episode pages, or plain episode titles. Use when users ask for 逐字稿/文字版/transcript/txt and want minimal trial-and-error.
+description: Deterministic workflow to find and export full podcast transcripts as cleaned TXT files from YouTube URLs, episode webpages (including Xiaoyuzhou), Apple Podcasts title search, X/Twitter links, direct audio URLs, or plain episode titles. Use when users ask for 逐字稿/文字版/transcript/txt and want minimal trial-and-error.
 ---
 
 # Podcast Transcript TXT
 
 ## Overview
 Produce clean TXT transcripts for podcast/video episodes with a fixed decision tree.
-Prioritize official transcript sources first, then platform subtitles.
-This release does not bundle local ASR dependencies by default.
+Prioritize official transcript sources first, then platform subtitles, then local ASR fallback.
+ASR fallback uses `faster-whisper` with fixed `medium` model for stable quality/speed tradeoff.
 
 ## Workflow Decision Tree
 
 1. Normalize input.
 - Accept one or more `--input` values.
-- Support (stable): YouTube URL/ID or plain title.
-- X/Twitter status URL: best-effort only, non-blocking fallback.
+- Support (stable): YouTube URL/ID, episode webpages (including Xiaoyuzhou), direct audio URLs, or plain title.
+- X/Twitter status URL: best-effort resolver to outbound sources.
 
 2. Resolve canonical episode source.
 - Stable path A: if input is YouTube URL/ID, use it directly.
-- Stable path B: if input is plain title, resolve with `ytsearch1`.
+- Stable path B: if input is plain title, resolve with `ytsearch1`, then Apple `podcastEpisode` search fallback.
 - Optional path: if input is X/Twitter URL, try outbound link resolution or compact title hint fallback.
 
 3. Fetch transcript in strict priority order.
 - Priority A: official transcript/API source from episode host (including YouTube description outbound links).
 - Priority B: platform subtitles via `yt-dlp` (`youtube:player_client=android`).
-- Priority C (optional, not bundled): local ASR fallback when A/B unavailable.
+- Priority C: local ASR fallback when A/B unavailable (`faster-whisper`, model fixed to `medium`).
 
 4. Clean and export.
 - Remove timestamp markup and HTML tags.
@@ -68,6 +68,7 @@ Outputs:
 
 - `scripod.com`: prefer `/api/transcript/<episode_id>`.
 - YouTube: use `yt-dlp` with `youtube:player_client=android`; try language set in this order: `zh-*` then `en-orig` then `en`.
+- Xiaoyuzhou and similar episode pages: extract `og:audio` / JSON-LD media URL, then run ASR fallback.
 
 ## References
 
