@@ -4,13 +4,30 @@
 
 - `python3`（建议 3.10+）
 - `yt-dlp`
+- `faster-whisper`（用于 ASR fallback）
 
 校验：
 
 ```bash
 python3 --version
 yt-dlp --version
+python3 -c "import faster_whisper; print('faster-whisper ok')"
 ```
+
+## 持久安装（强烈推荐）
+
+如果你希望“今天能跑、下次也能跑”，请把 ASR 依赖安装到用户环境（`--user`）或项目固定虚拟环境，**不要依赖 `/tmp` 下的临时 venv**。
+
+```bash
+python3 -m pip install --user -U faster-whisper
+python3 -c "import faster_whisper; print('ASR ready')"
+```
+
+说明：
+
+1. `--user` 安装是持久的，重启后仍可用。  
+2. `/tmp` 临时 venv 适合应急，不适合长期使用。  
+3. 模型文件会缓存在 `~/.cache/huggingface/hub`，首次慢，后续复用。  
 
 ## 方式 A：当作普通脚本使用（推荐）
 
@@ -50,7 +67,7 @@ python3 scripts/podcast_transcript_txt.py \
 
 把以下三条发给对方即可：
 
-1. 安装 `python3` + `yt-dlp`。  
+1. 安装 `python3` + `yt-dlp` + `faster-whisper`（持久安装，非临时目录）。  
 2. 运行上面的命令并指定 `--input`。  
 3. 看输出目录里的 `*.txt` 和同名 `*.meta.json`。  
 
