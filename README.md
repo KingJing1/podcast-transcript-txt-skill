@@ -5,6 +5,7 @@ A lightweight, deterministic CLI to export podcast transcripts as clean `.txt` f
 This project is designed for practical reliability:
 - Prefer official transcript sources when available.
 - Fallback to YouTube subtitles when needed.
+- If no transcript/captions are available, fallback to local ASR (`faster-whisper`, fixed model: `medium`).
 - Emit machine-readable diagnostics for every run.
 
 ## TL;DR
@@ -23,7 +24,7 @@ Output:
 
 ## Features
 
-- Deterministic source strategy (official first, subtitles second).
+- Deterministic source strategy (official first, subtitles second, ASR third).
 - Multiple input types:
   - YouTube URL / ID
   - Episode title keywords
@@ -31,18 +32,21 @@ Output:
   - Official transcript page / JSON URL
   - Scripod episode URL
 - Readability guardrails (quality checks + line splitting repair).
+- ASR fallback with fixed `medium` model for non-YouTube podcast episodes.
 - Structured run metadata (`resolver`, `quality`, `attempts`).
 
 ## Requirements
 
 - Python 3.10+
 - `yt-dlp`
+- For ASR fallback: `faster-whisper` (and system ffmpeg runtime available to PyAV)
 
 Quick check:
 
 ```bash
 python3 --version
 yt-dlp --version
+python3 -c "import faster_whisper; print('faster-whisper ok')"
 ```
 
 ## Installation
@@ -103,10 +107,23 @@ Exit code:
 Priority order:
 1. Official transcript sources (including links found in YouTube descriptions).
 2. YouTube subtitles via `yt-dlp`.
+3. Local ASR (`faster-whisper`, model fixed to `medium`) from audio URL / episode page / Apple podcastEpisode search.
 
 Notes:
 - X/Twitter is a resolver path, not a guaranteed transcript source.
 - Official transcript URL input is supported directly.
+- ASR outputs are intentionally marked as draft in `meta.json`.
+
+## Post-process (recommended)
+
+When output comes from ASR, do a quick proofreading pass with any LLM.
+This usually fixes names/terms fast without re-running heavy transcription.
+
+Suggested one-line instruction:
+
+```text
+Proofread this transcript with minimal edits: fix obvious homophone errors and punctuation, keep meaning unchanged, keep paragraph order unchanged.
+```
 
 ## Agent Integration
 
@@ -124,7 +141,7 @@ For non-terminal clients (for example Claude App/Web), run the CLI locally first
 
 - No tool can guarantee 100% transcript availability.
 - Failures can still happen due to missing captions, rate limits, or broken outbound links.
-- Local ASR is not bundled in this release (kept dependency-light by design).
+- ASR draft quality depends on audio quality and domain terms; expect occasional name/term mistakes.
 
 ## Troubleshooting
 

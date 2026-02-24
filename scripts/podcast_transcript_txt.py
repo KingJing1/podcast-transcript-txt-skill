@@ -37,6 +37,8 @@ UA = (
 YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 URL_RE = re.compile(r"https?://[^\s\"'<>]+")
 TRANSCRIPTION_JSON_RE = re.compile(r"https://[^\"'<> ]*transcription\.json[^\"'<> ]*", re.I)
+AUDIO_EXTS = (".m4a", ".mp3", ".wav", ".flac", ".aac", ".ogg", ".opus", ".mp4", ".webm")
+ASR_MODEL = "medium"
 
 
 def run(cmd: List[str]) -> subprocess.CompletedProcess:
@@ -102,6 +104,14 @@ def http_get(url: str, timeout: int = 25) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8", errors="ignore")
+
+
+def looks_like_audio_url(url: str) -> bool:
+    try:
+        path = urllib.parse.urlparse(url).path.lower()
+    except Exception:
+        return False
+    return any(path.endswith(ext) for ext in AUDIO_EXTS)
 
 
 def find_ytdlp() -> Optional[str]:
@@ -181,6 +191,10 @@ def youtube_metadata(ytdlp: str, target: str) -> Dict[str, str]:
     description = data.get("description") or ""
     if not (video_id and title and page_url):
         raise RuntimeError("yt-dlp metadata missing id/title/webpage_url")
+    if not YOUTUBE_ID_RE.fullmatch(video_id):
+        raise RuntimeError(f"yt-dlp metadata returned non-video id: {video_id}")
+    if not page_url.startswith("http"):
+        raise RuntimeError(f"yt-dlp metadata returned invalid webpage_url: {page_url}")
     return {
         "id": video_id,
         "title": title,
@@ -634,6 +648,170 @@ def parse_official_transcript_url(url: str) -> Tuple[List[str], str]:
     raise RuntimeError("unsupported official transcript format")
 
 
+def normalize_for_match(text: str) -> str:
+    text = (text or "").lower()
+    text = re.sub(r"[^\w\u4e00-\u9fff]+", " ", text)
+    return compact_ws(text)
+
+
+def title_match_score(query: str, track_name: str, collection_name: str) -> float:
+    q = normalize_for_match(query)
+    t = normalize_for_match(track_name)
+    c = normalize_for_match(collection_name)
+    if not q or not t:
+        return 0.0
+
+    score = 0.0
+    if q == t:
+        score += 40.0
+    if q in t:
+        score += 25.0
+    if q in c:
+        score += 8.0
+
+    for tok in q.split():
+        if len(tok) <= 1:
+            continue
+        if tok in t:
+            score += 4.0
+        elif tok in c:
+            score += 1.5
+
+    return score
+
+
+def resolve_title_to_itunes_episode(title: str, limit: int = 12) -> Dict[str, str]:
+    term = urllib.parse.quote(title)
+    api = f"https://itunes.apple.com/search?media=podcast&entity=podcastEpisode&limit={limit}&term={term}"
+    payload = json.loads(http_get(api, timeout=30))
+    results = payload.get("results") or []
+    if not isinstance(results, list) or not results:
+        raise RuntimeError("itunes episode search returned no results")
+
+    best: Optional[Dict[str, Any]] = None
+    best_score = -1.0
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        episode_url = str(item.get("episodeUrl") or "").strip()
+        track_name = str(item.get("trackName") or "").strip()
+        collection_name = str(item.get("collectionName") or "").strip()
+        if not (episode_url and track_name):
+            continue
+        s = title_match_score(title, track_name, collection_name)
+        if s > best_score:
+            best_score = s
+            best = item
+
+    if not best:
+        raise RuntimeError("itunes episode search returned no usable episodeUrl")
+
+    episode_url = str(best.get("episodeUrl") or "").strip()
+    track_name = str(best.get("trackName") or "").strip()
+    collection_name = str(best.get("collectionName") or "").strip()
+    episode_guid = str(best.get("episodeGuid") or best.get("trackId") or "").strip()
+    feed_url = str(best.get("feedUrl") or "").strip()
+    track_view_url = str(best.get("trackViewUrl") or "").strip()
+
+    if not episode_guid:
+        episode_guid = stable_id_from_url(episode_url)
+    if not episode_url:
+        raise RuntimeError("itunes result missing episodeUrl")
+
+    return {
+        "episode_url": episode_url,
+        "track_name": track_name or title,
+        "collection_name": collection_name,
+        "episode_guid": episode_guid,
+        "feed_url": feed_url,
+        "track_view_url": track_view_url,
+    }
+
+
+def extract_og_content(page_html: str, prop: str) -> Optional[str]:
+    p = re.escape(prop)
+    patterns = [
+        rf'<meta[^>]+property=["\']{p}["\'][^>]+content=["\']([^"\']+)["\']',
+        rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']{p}["\']',
+        rf'<meta[^>]+name=["\']{p}["\'][^>]+content=["\']([^"\']+)["\']',
+        rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']{p}["\']',
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, page_html, flags=re.I)
+        if m:
+            return html.unescape(m.group(1).strip())
+    return None
+
+
+def extract_audio_from_episode_page(url: str) -> Tuple[str, str]:
+    page = http_get(url, timeout=30)
+    audio = extract_og_content(page, "og:audio")
+    if not audio:
+        ld = re.findall(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', page, flags=re.I | re.S)
+        for block in ld:
+            try:
+                data = json.loads(block)
+            except Exception:
+                continue
+            if isinstance(data, dict):
+                media = data.get("associatedMedia") or {}
+                if isinstance(media, dict):
+                    v = media.get("contentUrl")
+                    if isinstance(v, str) and v.startswith("http"):
+                        audio = v
+                        break
+    if not audio:
+        raise RuntimeError("episode page has no og:audio or associatedMedia.contentUrl")
+
+    title = extract_og_content(page, "og:title")
+    if not title:
+        m = re.search(r"<title>(.*?)</title>", page, flags=re.I | re.S)
+        title = compact_ws(html.unescape(m.group(1))) if m else "podcast episode"
+    return compact_ws(title), compact_ws(audio)
+
+
+def download_audio_file(audio_url: str, dest: Path) -> None:
+    req = urllib.request.Request(audio_url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=90) as resp, open(dest, "wb") as f:
+        shutil.copyfileobj(resp, f, length=1 << 20)
+
+
+def run_local_asr(audio_path: Path) -> Tuple[List[str], Dict[str, Any]]:
+    try:
+        from faster_whisper import WhisperModel  # type: ignore
+    except Exception as e:
+        raise RuntimeError(
+            "local ASR requires faster-whisper. Install: pip install faster-whisper"
+        ) from e
+
+    model = WhisperModel(ASR_MODEL, device="cpu", compute_type="int8")
+    segments, info = model.transcribe(
+        str(audio_path),
+        beam_size=5,
+        vad_filter=True,
+        condition_on_previous_text=True,
+    )
+
+    lines: List[str] = []
+    for seg in segments:
+        text = compact_ws(getattr(seg, "text", ""))
+        if not text:
+            continue
+        ts = seconds_to_hms(float(getattr(seg, "start", 0.0) or 0.0))
+        lines.append(f"[{ts}] {text}")
+
+    if not lines:
+        raise RuntimeError("local ASR returned empty transcript")
+
+    asr_meta = {
+        "model": ASR_MODEL,
+        "language": str(getattr(info, "language", "")),
+        "duration_sec": float(getattr(info, "duration", 0.0) or 0.0),
+        "line_count": len(lines),
+    }
+    return lines, asr_meta
+
+
 def stable_id_from_url(url: str) -> str:
     p = urllib.parse.urlparse(url)
     slug = Path(p.path).stem or p.netloc or "official"
@@ -865,6 +1043,33 @@ def process_youtube_target(ytdlp: str, target: str, out_dir: Path, meta: Dict[st
     return write_outputs(out_dir, title, real_id, lines, meta)
 
 
+def process_audio_url_target(
+    audio_url: str,
+    title: str,
+    stable_id: str,
+    out_dir: Path,
+    meta: Dict[str, Any],
+    resolver_name: str,
+) -> Tuple[Path, Path]:
+    with tempfile.TemporaryDirectory(prefix="podcast_asr_") as td:
+        suffix = Path(urllib.parse.urlparse(audio_url).path).suffix or ".audio"
+        audio_path = Path(td) / f"input{suffix}"
+        download_audio_file(audio_url, audio_path)
+        lines, asr_meta = run_local_asr(audio_path)
+
+    metrics = quality_metrics(lines)
+    meta["resolver"] = resolver_name
+    meta["source"] = audio_url
+    meta["quality"] = metrics
+    meta["asr"] = asr_meta
+    meta["status"] = "warn"
+    meta["notes"].append(
+        "ASR transcript is a draft; proofread with any LLM for names/terms before publishing."
+    )
+    log_attempt(meta, "C_local_asr", True, f"model={ASR_MODEL}, lines={len(lines)}", source=audio_url)
+    return write_outputs(out_dir, title, stable_id, lines, meta)
+
+
 def process_item(raw: str, out_dir: Path, ytdlp: Optional[str]) -> Tuple[Path, Path]:
     meta: Dict[str, Any] = {
         "input": raw,
@@ -919,7 +1124,7 @@ def process_item(raw: str, out_dir: Path, ytdlp: Optional[str]) -> Tuple[Path, P
 
         direct = None
         for u in links:
-            if extract_youtube_id(u) or "scripod.com/episode/" in u:
+            if extract_youtube_id(u) or "scripod.com/episode/" in u or looks_like_audio_url(u):
                 direct = u
                 break
 
@@ -938,20 +1143,61 @@ def process_item(raw: str, out_dir: Path, ytdlp: Optional[str]) -> Tuple[Path, P
                 log_attempt(meta, "x_resolve", False, "no usable direct source and no title hint", source=raw)
                 raise RuntimeError("x status resolved no usable transcript source and no searchable text hint")
 
+    # C) Generic non-YouTube URL: audio URL or episode page -> local ASR.
+    if is_url(raw) and not ("x.com/" in raw or "twitter.com/" in raw) and not extract_youtube_id(raw):
+        if looks_like_audio_url(raw):
+            guessed_title = compact_ws(Path(urllib.parse.urlparse(raw).path).stem.replace("-", " ").replace("_", " "))
+            guessed_title = guessed_title or "podcast episode"
+            sid = stable_id_from_url(raw)
+            try:
+                log_attempt(meta, "C_audio_url", True, "detected direct audio url", source=raw)
+                return process_audio_url_target(raw, guessed_title, sid, out_dir, meta, resolver_name="audio-url-asr")
+            except Exception as e:
+                log_attempt(meta, "C_audio_url", False, str(e), source=raw)
+                raise
+
+        try:
+            page_title, audio_url = extract_audio_from_episode_page(raw)
+            sid = stable_id_from_url(raw)
+            log_attempt(meta, "C_episode_page", True, "extracted og:audio from episode page", source=raw)
+            return process_audio_url_target(audio_url, page_title, sid, out_dir, meta, resolver_name="episode-page-asr")
+        except Exception as e:
+            log_attempt(meta, "C_episode_page", False, str(e), source=raw)
+
     # C) YouTube URL or ID.
     vid = extract_youtube_id(raw)
     if vid and ytdlp:
         video_url = youtube_url_from_id(vid)
         return process_youtube_target(ytdlp, video_url, out_dir, meta, resolver_name="youtube-id")
 
-    # D) Plain title -> YouTube.
-    if ytdlp and not is_url(raw):
-        info = resolve_title_to_youtube(ytdlp, raw)
-        log_attempt(meta, "title_search", True, f"matched video {info['id']}", source=info["webpage_url"])
-        return process_youtube_target(ytdlp, info["webpage_url"], out_dir, meta, resolver_name="title->ytsearch1")
+    # D) Plain title: YouTube first, then Apple podcastEpisode -> ASR.
+    if not is_url(raw):
+        if ytdlp:
+            try:
+                info = resolve_title_to_youtube(ytdlp, raw)
+                log_attempt(meta, "title_search", True, f"matched video {info['id']}", source=info["webpage_url"])
+                return process_youtube_target(ytdlp, info["webpage_url"], out_dir, meta, resolver_name="title->ytsearch1")
+            except Exception as e:
+                log_attempt(meta, "title_search", False, str(e), source=raw)
+
+        try:
+            ep = resolve_title_to_itunes_episode(raw)
+            src = ep["track_view_url"] or ep["feed_url"] or ep["episode_url"]
+            detail = f"matched episode {ep['episode_guid']} from {ep['collection_name'] or 'podcast'}"
+            log_attempt(meta, "title_itunes", True, detail, source=src)
+            return process_audio_url_target(
+                ep["episode_url"],
+                ep["track_name"],
+                ep["episode_guid"],
+                out_dir,
+                meta,
+                resolver_name="title->itunes-episode-asr",
+            )
+        except Exception as e:
+            log_attempt(meta, "title_itunes", False, str(e), source=raw)
 
     if not ytdlp:
-        raise RuntimeError("yt-dlp not found; only direct official transcript URLs are supported")
+        raise RuntimeError("yt-dlp not found and local ASR fallback failed; install yt-dlp or provide official transcript URL")
     raise RuntimeError("no deterministic resolver matched this input")
 
 
