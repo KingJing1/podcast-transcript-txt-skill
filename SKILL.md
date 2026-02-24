@@ -19,15 +19,23 @@ ASR fallback uses `faster-whisper` with fixed `medium` model for stable quality/
 
 2. Resolve canonical episode source.
 - Stable path A: if input is YouTube URL/ID, use it directly.
-- Stable path B: if input is plain title, resolve with `ytsearch1`, then Apple `podcastEpisode` search fallback.
-- Optional path: if input is X/Twitter URL, try outbound link resolution or compact title hint fallback.
+- Stable path B: if input is direct official transcript URL/JSON, parse it directly.
+- Stable path C: if input is direct audio URL, go to local ASR path.
+- Stable path D: if input is episode webpage, attempt transcript parse, then extract `og:audio`/JSON-LD audio as ASR source.
+- Stable path E: if input is plain title, resolve with `ytsearch1`, then Apple `podcastEpisode` search fallback.
+- Optional path: if input is X/Twitter URL, try outbound link resolution or compact title hint fallback, then follow A-E.
 
 3. Fetch transcript in strict priority order.
 - Priority A: official transcript/API source from episode host (including YouTube description outbound links).
 - Priority B: platform subtitles via `yt-dlp` (`youtube:player_client=android`).
-- Priority C: local ASR fallback when A/B unavailable (`faster-whisper`, model fixed to `medium`).
+- Priority C: local ASR fallback when A/B unavailable and an audio source is available (`faster-whisper`, model fixed to `medium`).
 
-4. Clean and export.
+4. Error and boundary handling.
+- If A/B/C all fail, return exact failed stage and error detail.
+- Record every step into `meta.json.attempts[]`.
+- Do not bypass login/paywall/DRM protections.
+
+5. Clean and export.
 - Remove timestamp markup and HTML tags.
 - Collapse rolling-caption duplication.
 - Run readability quality checks; if needed, apply aggressive secondary splitting.
@@ -38,6 +46,7 @@ ASR fallback uses `faster-whisper` with fixed `medium` model for stable quality/
 
 1. Do not jump between random methods.
 - Always follow A -> B -> C.
+- C requires an audio source (direct audio URL / episode webpage audio / Apple episode audio).
 - Record the failure reason before moving to next tier.
 
 2. Default security posture.

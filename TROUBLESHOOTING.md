@@ -32,15 +32,62 @@ ls -lh /你的输出目录
 - YouTube 链接
 - 或“节目名 + 嘉宾名”标题输入
 
-## 5) 如何快速判断走了哪条路径
+## 5) 报错 `local ASR requires faster-whisper`
+
+说明当前环境缺少 ASR 依赖。安装后重试：
+
+```bash
+pip install faster-whisper
+python3 -c "import faster_whisper; print('ok')"
+```
+
+## 6) 转写耗时太久（这是正常的吗）
+
+当前 ASR 固定模型是 `medium`，速度换准确率。  
+CPU 机器上常见范围：
+
+- 30 分钟音频：15-35 分钟
+- 60 分钟音频：30-70 分钟
+
+如果你只要极速初稿，建议先改用可用字幕来源（YouTube）而不是纯 ASR。
+
+## 7) 错字较多（人名、书名、术语）
+
+这是 ASR 常见边界，尤其在中文专有名词上。推荐做法：
+
+1. 保留原时间轴和段落顺序。
+2. 用任意大模型做“最小改动订正”。
+3. 只改明显同音错字和标点，不改原意。
+
+示例提示词：
+
+```text
+Proofread this transcript with minimal edits: fix obvious homophone errors and punctuation, keep meaning unchanged, keep paragraph order unchanged.
+```
+
+## 8) 如何快速判断走了哪条路径
 
 打开同名 `*.meta.json`：
 
 - `resolver=official-link`：已走官方 transcript 外链  
 - `resolver=youtube-id` / `title->ytsearch1`：走字幕回退  
-- `attempts[]`：每一步的成功/失败原因  
+- `attempts[]`：每一步的成功/失败原因
 
-## 6) Git 推送常见问题
+## 9) 标题输入没有命中正确节目
+
+标题搜索路径是：
+
+1. `ytsearch1`（YouTube）
+2. Apple `podcastEpisode`（标题匹配）
+
+建议输入格式：
+
+- `节目名 + 期数 + 嘉宾名`
+- 避免只给单词或过短关键词
+
+并用 `meta.json.attempts[]` 检查命中来源。
+
+## 10) Git 推送常见问题
 
 `Repository not found`：
 
