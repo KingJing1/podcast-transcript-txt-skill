@@ -9,6 +9,22 @@ Turn any podcast source into clean TXT — YouTube, episode webpages, Xiaoyuzhou
 - Even with official transcripts/subtitles, punctuation, speaker labels, names, and domain terms may still need fixes.
 - Always run one proofreading pass with a strong LLM before sharing/publishing.
 
+## Recommended User Prompt (Copy-Paste)
+
+Use this when handing the skill to end users:
+
+```text
+Choose ASR model:
+- small (default): faster, lighter, best for first draft
+- medium: slower, larger, usually better on names/terms
+
+Output will include both:
+1) transcript.txt
+2) transcript.meta.json (resolver + quality + attempts for debugging)
+
+Important: this transcript is a draft. Run one strong-LLM proofreading pass before publishing.
+```
+
 This project is designed for practical reliability:
 - Prefer official transcript sources when available.
 - Fallback to YouTube subtitles when needed.

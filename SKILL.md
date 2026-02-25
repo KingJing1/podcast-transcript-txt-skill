@@ -63,6 +63,8 @@ All transcript outputs are working drafts; always recommend one strong-LLM proof
 - Explicitly state that output TXT is a draft, not final publish-ready text.
 - Explicitly recommend one strong-LLM proofreading pass for names/terms/punctuation.
 - Keep this notice concise but always present in final user-facing delivery.
+- Prompt users to choose ASR model (`small` or `medium`) and explain tradeoff in one sentence.
+- Remind users that delivery includes both `*.txt` and `*.meta.json`.
 
 ## Quick Start
 

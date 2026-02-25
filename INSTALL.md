@@ -82,6 +82,20 @@ python3 scripts/podcast_transcript_txt.py \
 2. 成功后从 `--out-dir` 读取对应 `*.txt`。  
 3. 同时读取同名 `*.meta.json` 作为可观测日志（`attempts`、`quality`、`resolver`）。  
 
+## 推荐给最终用户的提示文案（可直接复制）
+
+```text
+Choose ASR model:
+- small (default): faster, lighter, best for first draft
+- medium: slower, larger, usually better on names/terms
+
+Output will include both:
+1) transcript.txt
+2) transcript.meta.json (resolver + quality + attempts for debugging)
+
+Important: this transcript is a draft. Run one strong-LLM proofreading pass before publishing.
+```
+
 ## 质量预期（务必告知使用者）
 
 1. 产出的 TXT 是**初稿**，不是可直接发布终稿。  
