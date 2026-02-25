@@ -3,10 +3,16 @@
 A lightweight, deterministic CLI to export podcast transcripts as clean `.txt` files.
 Turn any podcast source into clean TXT — YouTube, episode webpages, Xiaoyuzhou, Apple Podcasts, X links, or just a title.
 
+## Important Quality Expectation
+
+- The generated transcript is a **working draft**, not final publish-ready text.
+- Even with official transcripts/subtitles, punctuation, speaker labels, names, and domain terms may still need fixes.
+- Always run one proofreading pass with a strong LLM before sharing/publishing.
+
 This project is designed for practical reliability:
 - Prefer official transcript sources when available.
 - Fallback to YouTube subtitles when needed.
-- If no transcript/captions are available, fallback to local ASR (`faster-whisper`, fixed model: `medium`).
+- If no transcript/captions are available, fallback to local ASR (`faster-whisper`, selectable `small|medium`, default `small`).
 - Emit machine-readable diagnostics for every run.
 
 ## TL;DR
@@ -36,7 +42,7 @@ Output:
   - Official transcript page / JSON URL
   - Scripod episode URL
 - Readability guardrails (quality checks + line splitting repair).
-- ASR fallback with fixed `medium` model for non-YouTube podcast episodes.
+- ASR fallback with selectable `small|medium` model (`small` by default).
 - Structured run metadata (`resolver`, `quality`, `attempts`).
 
 ## Requirements
@@ -111,7 +117,7 @@ Exit code:
 Priority order:
 1. Official transcript sources (including links found in YouTube descriptions).
 2. YouTube subtitles via `yt-dlp`.
-3. Local ASR (`faster-whisper`, model fixed to `medium`) from audio URL / episode page / Apple podcastEpisode search.
+3. Local ASR (`faster-whisper`, `--asr-model small|medium`, default `small`) from audio URL / episode page / Apple podcastEpisode search.
 
 Notes:
 - X/Twitter is a resolver path, not a guaranteed transcript source.
@@ -149,28 +155,38 @@ Out of scope:
 
 1. If official transcript exists and parses cleanly, always use it.
 2. If official transcript is missing or low quality, use platform subtitles.
-3. If subtitles are missing/unreadable and an audio source is available, run local ASR (`medium`).
+3. If subtitles are missing/unreadable and an audio source is available, run local ASR (`--asr-model small|medium`, default `small`).
 4. If all routes fail, surface exact failed stage and unblock action in CLI error + `meta.json`.
 
 ## ASR Runtime And Quality Expectation
 
-- Model is fixed: `medium` (`faster-whisper`), optimized for practical balance.
+- Model selection:
+  - `small` (default): faster and lighter, best for first draft.
+  - `medium`: slower and heavier, usually better on names/terms.
 - Typical CPU runtime:
-  - 30 min audio: around 15-35 min
-  - 60 min audio: around 30-70 min
+  - 30 min audio: `small` around 8-20 min, `medium` around 15-35 min
+  - 60 min audio: `small` around 16-40 min, `medium` around 30-70 min
 - Output expectation:
-  - Usually good structure and semantic continuity.
-  - Name/term homophone errors are expected; run one LLM proofreading pass before publishing.
+  - Usually good structure and semantic continuity for a draft.
+  - Name/term homophone errors are expected; run one strong-LLM proofreading pass before publishing.
+
+Pre-download model (persistent local path):
+
+```bash
+python3 scripts/podcast_transcript_txt.py --bootstrap-models small
+# optional:
+# python3 scripts/podcast_transcript_txt.py --bootstrap-models medium
+```
 
 ## Post-process (recommended)
 
-When output comes from ASR, do a quick proofreading pass with any LLM.
+When output comes from ASR, do a quick proofreading pass with a strong LLM.
 This usually fixes names/terms fast without re-running heavy transcription.
 
 Suggested one-line instruction:
 
 ```text
-Proofread this transcript with minimal edits: fix obvious homophone errors and punctuation, keep meaning unchanged, keep paragraph order unchanged.
+Proofread this draft transcript with minimal edits: fix obvious homophone errors and punctuation, keep meaning unchanged, keep paragraph order unchanged.
 ```
 
 ## Agent Integration

@@ -1,4 +1,4 @@
 interface:
   display_name: "Podcast Transcript TXT"
-  short_description: "Find full podcast transcript and export clean TXT files"
-  default_prompt: "Use $podcast-transcript-txt to find full transcript from a link or title and export cleaned TXT files."
+  short_description: "Export podcast transcript TXT (draft first, then LLM-proofread)"
+  default_prompt: "Use $podcast-transcript-txt to get a full transcript TXT from a link/title, and explicitly remind that output is a draft requiring one strong-LLM proofreading pass."

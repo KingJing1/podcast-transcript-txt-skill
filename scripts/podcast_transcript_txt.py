@@ -38,7 +38,11 @@ YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 URL_RE = re.compile(r"https?://[^\s\"'<>]+")
 TRANSCRIPTION_JSON_RE = re.compile(r"https://[^\"'<> ]*transcription\.json[^\"'<> ]*", re.I)
 AUDIO_EXTS = (".m4a", ".mp3", ".wav", ".flac", ".aac", ".ogg", ".opus", ".mp4", ".webm")
-ASR_MODEL = "medium"
+DEFAULT_ASR_MODEL = os.getenv("PODCAST_ASR_MODEL", "small").strip() or "small"
+DEFAULT_MODEL_ROOT = Path(
+    os.getenv("PODCAST_ASR_MODEL_ROOT", str(Path.home() / ".codex/models/faster-whisper"))
+).expanduser()
+SUPPORTED_ASR_MODELS = ("small", "medium")
 
 
 def run(cmd: List[str]) -> subprocess.CompletedProcess:
@@ -133,6 +137,32 @@ def find_ytdlp() -> Optional[str]:
         if p.exists() and os.access(p, os.X_OK):
             return str(p)
     return None
+
+
+def get_model_root() -> Path:
+    return DEFAULT_MODEL_ROOT
+
+
+def hf_model_id_from_choice(asr_model: str) -> str:
+    choice = compact_ws(asr_model).lower()
+    if choice not in SUPPORTED_ASR_MODELS:
+        raise RuntimeError(f"unsupported asr model: {asr_model}. allowed: {', '.join(SUPPORTED_ASR_MODELS)}")
+    return f"Systran/faster-whisper-{choice}"
+
+
+def hf_cache_dir_for_model(asr_model: str, model_root: Path) -> Path:
+    model_id = hf_model_id_from_choice(asr_model)
+    return model_root / f"models--{model_id.replace('/', '--')}"
+
+
+def resolve_model_arg(asr_model: str) -> Tuple[str, str, Path, Path]:
+    """Return (model_arg, source_label, model_root, cache_dir)."""
+    model_root = get_model_root()
+    model_arg = hf_model_id_from_choice(asr_model)
+    cache_dir = hf_cache_dir_for_model(asr_model, model_root)
+    if cache_dir.exists():
+        return model_arg, "persistent-cache-hit", model_root, cache_dir
+    return model_arg, "persistent-cache-miss", model_root, cache_dir
 
 
 def extract_youtube_id(value: str) -> Optional[str]:
@@ -776,7 +806,7 @@ def download_audio_file(audio_url: str, dest: Path) -> None:
         shutil.copyfileobj(resp, f, length=1 << 20)
 
 
-def run_local_asr(audio_path: Path) -> Tuple[List[str], Dict[str, Any]]:
+def run_local_asr(audio_path: Path, asr_model: str) -> Tuple[List[str], Dict[str, Any]]:
     try:
         from faster_whisper import WhisperModel  # type: ignore
     except Exception as e:
@@ -784,7 +814,13 @@ def run_local_asr(audio_path: Path) -> Tuple[List[str], Dict[str, Any]]:
             "local ASR requires faster-whisper. Install: pip install faster-whisper"
         ) from e
 
-    model = WhisperModel(ASR_MODEL, device="cpu", compute_type="int8")
+    model_arg, model_source, model_root, cache_dir = resolve_model_arg(asr_model)
+    model = WhisperModel(
+        model_arg,
+        device="cpu",
+        compute_type="int8",
+        download_root=str(model_root),
+    )
     segments, info = model.transcribe(
         str(audio_path),
         beam_size=5,
@@ -804,7 +840,11 @@ def run_local_asr(audio_path: Path) -> Tuple[List[str], Dict[str, Any]]:
         raise RuntimeError("local ASR returned empty transcript")
 
     asr_meta = {
-        "model": ASR_MODEL,
+        "model": asr_model,
+        "model_arg": model_arg,
+        "model_source": model_source,
+        "model_root": str(model_root),
+        "model_cache_dir": str(cache_dir),
         "language": str(getattr(info, "language", "")),
         "duration_sec": float(getattr(info, "duration", 0.0) or 0.0),
         "line_count": len(lines),
@@ -1050,12 +1090,13 @@ def process_audio_url_target(
     out_dir: Path,
     meta: Dict[str, Any],
     resolver_name: str,
+    asr_model: str,
 ) -> Tuple[Path, Path]:
     with tempfile.TemporaryDirectory(prefix="podcast_asr_") as td:
         suffix = Path(urllib.parse.urlparse(audio_url).path).suffix or ".audio"
         audio_path = Path(td) / f"input{suffix}"
         download_audio_file(audio_url, audio_path)
-        lines, asr_meta = run_local_asr(audio_path)
+        lines, asr_meta = run_local_asr(audio_path, asr_model)
 
     metrics = quality_metrics(lines)
     meta["resolver"] = resolver_name
@@ -1066,11 +1107,11 @@ def process_audio_url_target(
     meta["notes"].append(
         "ASR transcript is a draft; proofread with any LLM for names/terms before publishing."
     )
-    log_attempt(meta, "C_local_asr", True, f"model={ASR_MODEL}, lines={len(lines)}", source=audio_url)
+    log_attempt(meta, "C_local_asr", True, f"model={asr_model}, lines={len(lines)}", source=audio_url)
     return write_outputs(out_dir, title, stable_id, lines, meta)
 
 
-def process_item(raw: str, out_dir: Path, ytdlp: Optional[str]) -> Tuple[Path, Path]:
+def process_item(raw: str, out_dir: Path, ytdlp: Optional[str], asr_model: str) -> Tuple[Path, Path]:
     meta: Dict[str, Any] = {
         "input": raw,
         "resolver": None,
@@ -1151,7 +1192,15 @@ def process_item(raw: str, out_dir: Path, ytdlp: Optional[str]) -> Tuple[Path, P
             sid = stable_id_from_url(raw)
             try:
                 log_attempt(meta, "C_audio_url", True, "detected direct audio url", source=raw)
-                return process_audio_url_target(raw, guessed_title, sid, out_dir, meta, resolver_name="audio-url-asr")
+                return process_audio_url_target(
+                    raw,
+                    guessed_title,
+                    sid,
+                    out_dir,
+                    meta,
+                    resolver_name="audio-url-asr",
+                    asr_model=asr_model,
+                )
             except Exception as e:
                 log_attempt(meta, "C_audio_url", False, str(e), source=raw)
                 raise
@@ -1160,7 +1209,15 @@ def process_item(raw: str, out_dir: Path, ytdlp: Optional[str]) -> Tuple[Path, P
             page_title, audio_url = extract_audio_from_episode_page(raw)
             sid = stable_id_from_url(raw)
             log_attempt(meta, "C_episode_page", True, "extracted og:audio from episode page", source=raw)
-            return process_audio_url_target(audio_url, page_title, sid, out_dir, meta, resolver_name="episode-page-asr")
+            return process_audio_url_target(
+                audio_url,
+                page_title,
+                sid,
+                out_dir,
+                meta,
+                resolver_name="episode-page-asr",
+                asr_model=asr_model,
+            )
         except Exception as e:
             log_attempt(meta, "C_episode_page", False, str(e), source=raw)
 
@@ -1192,6 +1249,7 @@ def process_item(raw: str, out_dir: Path, ytdlp: Optional[str]) -> Tuple[Path, P
                 out_dir,
                 meta,
                 resolver_name="title->itunes-episode-asr",
+                asr_model=asr_model,
             )
         except Exception as e:
             log_attempt(meta, "title_itunes", False, str(e), source=raw)
@@ -1201,23 +1259,65 @@ def process_item(raw: str, out_dir: Path, ytdlp: Optional[str]) -> Tuple[Path, P
     raise RuntimeError("no deterministic resolver matched this input")
 
 
+def bootstrap_models(models: List[str]) -> None:
+    try:
+        from faster_whisper import WhisperModel  # type: ignore
+    except Exception as e:
+        raise RuntimeError(
+            "bootstrap requires faster-whisper. Install: pip install faster-whisper"
+        ) from e
+
+    model_root = get_model_root()
+    model_root.mkdir(parents=True, exist_ok=True)
+    for m in models:
+        model_name = compact_ws(m).lower()
+        if not model_name:
+            continue
+        model_arg = hf_model_id_from_choice(model_name)
+        cache_dir = hf_cache_dir_for_model(model_name, model_root)
+        if cache_dir.exists():
+            print(f"MODEL_OK\t{cache_dir}")
+            continue
+        print(f"MODEL_DL\t{model_name}\t->\t{cache_dir}")
+        _ = WhisperModel(
+            model_arg,
+            device="cpu",
+            compute_type="int8",
+            download_root=str(model_root),
+        )
+        print(f"MODEL_OK\t{cache_dir}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Export podcast transcript to TXT with deterministic source priority")
-    parser.add_argument("--input", action="append", required=True, help="YouTube URL/ID, X status URL, known episode URL, or plain title")
+    parser.add_argument("--input", action="append", help="YouTube URL/ID, X status URL, known episode URL, or plain title")
     parser.add_argument("--out-dir", default=".", help="Output directory")
+    parser.add_argument(
+        "--asr-model",
+        default=DEFAULT_ASR_MODEL,
+        choices=SUPPORTED_ASR_MODELS,
+        help=f"ASR model name (default: {DEFAULT_ASR_MODEL})",
+    )
+    parser.add_argument("--bootstrap-models", nargs="+", help="Pre-download ASR models to persistent local root")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if not args.input and not args.bootstrap_models:
+        parser.error("at least one --input is required (or use --bootstrap-models)")
+
+    if args.bootstrap_models:
+        bootstrap_models(args.bootstrap_models)
 
     ytdlp = find_ytdlp()
     if not ytdlp:
         print("WARN: yt-dlp not found; only official-host transcript paths will work.", file=sys.stderr)
 
     failures = 0
-    for raw in args.input:
+    for raw in args.input or []:
         try:
-            txt, meta = process_item(raw, out_dir, ytdlp)
+            txt, meta = process_item(raw, out_dir, ytdlp, args.asr_model)
             print(f"OK\t{txt}")
             print(f"META\t{meta}")
         except Exception as e:

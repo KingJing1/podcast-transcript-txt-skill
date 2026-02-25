@@ -8,7 +8,8 @@ description: Deterministic workflow to find and export full podcast transcripts 
 ## Overview
 Produce clean TXT transcripts for podcast/video episodes with a fixed decision tree.
 Prioritize official transcript sources first, then platform subtitles, then local ASR fallback.
-ASR fallback uses `faster-whisper` with fixed `medium` model for stable quality/speed tradeoff.
+ASR fallback uses `faster-whisper` with selectable `--asr-model small|medium` (default `small`).
+All transcript outputs are working drafts; always recommend one strong-LLM proofreading pass.
 
 ## Workflow Decision Tree
 
@@ -28,7 +29,7 @@ ASR fallback uses `faster-whisper` with fixed `medium` model for stable quality/
 3. Fetch transcript in strict priority order.
 - Priority A: official transcript/API source from episode host (including YouTube description outbound links).
 - Priority B: platform subtitles via `yt-dlp` (`youtube:player_client=android`).
-- Priority C: local ASR fallback when A/B unavailable and an audio source is available (`faster-whisper`, model fixed to `medium`).
+- Priority C: local ASR fallback when A/B unavailable and an audio source is available (`faster-whisper`, `--asr-model small|medium`, default `small`).
 
 4. Error and boundary handling.
 - If A/B/C all fail, return exact failed stage and error detail.
@@ -57,6 +58,11 @@ ASR fallback uses `faster-whisper` with fixed `medium` model for stable quality/
 - Return: failed stage, exact error type, and next action already attempted.
 - Persist each attempt in `meta.json` (`attempts[]`).
 - If blocked after A/B/C, return one minimal user command to unblock.
+
+4. Delivery quality contract.
+- Explicitly state that output TXT is a draft, not final publish-ready text.
+- Explicitly recommend one strong-LLM proofreading pass for names/terms/punctuation.
+- Keep this notice concise but always present in final user-facing delivery.
 
 ## Quick Start
 

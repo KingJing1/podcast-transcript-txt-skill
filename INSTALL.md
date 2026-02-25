@@ -4,7 +4,7 @@
 
 - `python3`（建议 3.10+）
 - `yt-dlp`
-- `faster-whisper`（用于 ASR fallback）
+- `faster-whisper`（用于 ASR fallback，支持 `small|medium`）
 
 校验：
 
@@ -27,7 +27,26 @@ python3 -c "import faster_whisper; print('ASR ready')"
 
 1. `--user` 安装是持久的，重启后仍可用。  
 2. `/tmp` 临时 venv 适合应急，不适合长期使用。  
-3. 模型文件会缓存在 `~/.cache/huggingface/hub`，首次慢，后续复用。  
+3. 建议把模型预下载到固定目录：`~/.codex/models/faster-whisper`，避免误删缓存后重复下载。  
+
+预下载模型（持久）：
+
+```bash
+# 默认推荐：small（速度快，适合先出初稿）
+python3 scripts/podcast_transcript_txt.py --bootstrap-models small
+
+# 可选：medium（更慢、更占空间，术语通常更稳）
+python3 scripts/podcast_transcript_txt.py --bootstrap-models medium
+```
+
+运行时选择模型：
+
+```bash
+python3 scripts/podcast_transcript_txt.py \
+  --input "<链接或标题>" \
+  --asr-model small \
+  --out-dir "<输出目录>"
+```
 
 ## 方式 A：当作普通脚本使用（推荐）
 
@@ -62,6 +81,12 @@ python3 scripts/podcast_transcript_txt.py \
 1. 读标准输出中的 `OK` / `FAIL` 行作为执行结果。  
 2. 成功后从 `--out-dir` 读取对应 `*.txt`。  
 3. 同时读取同名 `*.meta.json` 作为可观测日志（`attempts`、`quality`、`resolver`）。  
+
+## 质量预期（务必告知使用者）
+
+1. 产出的 TXT 是**初稿**，不是可直接发布终稿。  
+2. 名词、人名、术语、标点可能有误，尤其是 ASR 路径。  
+3. 必须再用一个强 LLM 做一遍校对再对外使用。  
 
 ## 给别人分发时的最小说明
 
