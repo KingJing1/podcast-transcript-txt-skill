@@ -758,6 +758,84 @@ def resolve_title_to_itunes_episode(title: str, limit: int = 12) -> Dict[str, st
     }
 
 
+def resolve_title_to_scripod_episode(title: str, limit: int = 20) -> Dict[str, str]:
+    params = urllib.parse.urlencode({"keyword": title, "limit": str(limit), "entity": "episode"})
+    api = f"https://scripod.com/api/search/?{params}"
+    payload = json.loads(http_get(api, timeout=30))
+    results = payload.get("results") or []
+    if not isinstance(results, list) or not results:
+        raise RuntimeError("scripod episode search returned no results")
+
+    best: Optional[Dict[str, Any]] = None
+    best_score = -1.0
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        track_name = str(item.get("title") or "").strip()
+        collection_name = str(item.get("channelTitle") or "").strip()
+        feed_url = str(item.get("feedUrl") or "").strip()
+        if not (track_name and feed_url):
+            continue
+        s = title_match_score(title, track_name, collection_name)
+        if s > best_score:
+            best_score = s
+            best = item
+
+    if not best:
+        raise RuntimeError("scripod episode search returned no usable feedUrl/title")
+
+    feed_url = str(best.get("feedUrl") or "").strip()
+    track_name = str(best.get("title") or title).strip() or title
+    collection_name = str(best.get("channelTitle") or "").strip()
+    episode_guid_hint = str(best.get("guid") or "").strip()
+
+    ch_params = urllib.parse.urlencode({"feedUrl": feed_url, "title": track_name})
+    channel_api = f"https://scripod.com/api/channel/?{ch_params}"
+    channel_payload = json.loads(http_get(channel_api, timeout=30))
+    episodes = channel_payload.get("episodes") or []
+    if not isinstance(episodes, list) or not episodes:
+        raise RuntimeError("scripod channel resolve returned no episodes")
+
+    matched: Optional[Dict[str, Any]] = None
+    matched_score = -1.0
+    for ep in episodes:
+        if not isinstance(ep, dict):
+            continue
+        ep_id = str(ep.get("id") or "").strip()
+        ep_title = str(ep.get("title") or "").strip()
+        ep_guid = str(ep.get("guid") or "").strip()
+        if not (ep_id and ep_title):
+            continue
+
+        s = title_match_score(title, ep_title, collection_name)
+        if episode_guid_hint and ep_guid and ep_guid == episode_guid_hint:
+            s += 100.0
+        if normalize_for_match(track_name) == normalize_for_match(ep_title):
+            s += 30.0
+
+        if s > matched_score:
+            matched_score = s
+            matched = ep
+
+    if not matched:
+        raise RuntimeError("scripod channel resolve could not match target episode")
+
+    episode_id = str(matched.get("id") or "").strip()
+    if not episode_id:
+        raise RuntimeError("scripod matched episode missing id")
+
+    resolved_title = str(matched.get("title") or track_name).strip() or track_name
+    resolved_guid = str(matched.get("guid") or episode_guid_hint).strip()
+
+    return {
+        "episode_id": episode_id,
+        "track_name": resolved_title,
+        "collection_name": collection_name,
+        "feed_url": feed_url,
+        "episode_guid": resolved_guid,
+    }
+
+
 def extract_og_content(page_html: str, prop: str) -> Optional[str]:
     p = re.escape(prop)
     patterns = [
@@ -1227,7 +1305,7 @@ def process_item(raw: str, out_dir: Path, ytdlp: Optional[str], asr_model: str) 
         video_url = youtube_url_from_id(vid)
         return process_youtube_target(ytdlp, video_url, out_dir, meta, resolver_name="youtube-id")
 
-    # D) Plain title: YouTube first, then Apple podcastEpisode -> ASR.
+    # D) Plain title: YouTube first, then Scripod transcript API, then Apple podcastEpisode -> ASR.
     if not is_url(raw):
         if ytdlp:
             try:
@@ -1236,6 +1314,21 @@ def process_item(raw: str, out_dir: Path, ytdlp: Optional[str], asr_model: str) 
                 return process_youtube_target(ytdlp, info["webpage_url"], out_dir, meta, resolver_name="title->ytsearch1")
             except Exception as e:
                 log_attempt(meta, "title_search", False, str(e), source=raw)
+
+        try:
+            sp = resolve_title_to_scripod_episode(raw)
+            eid = sp["episode_id"]
+            source = f"https://scripod.com/api/transcript/{eid}"
+            _eid, _title, lines = parse_scripod_transcript(f"https://scripod.com/episode/{eid}")
+            m = quality_metrics(lines)
+            meta["resolver"] = "title->scripod-api"
+            meta["source"] = source
+            meta["quality"] = m
+            detail = f"matched episode {eid} from {sp['collection_name'] or 'podcast'}"
+            log_attempt(meta, "title_scripod", True, detail, source=source)
+            return write_outputs(out_dir, sp["track_name"], eid, lines, meta)
+        except Exception as e:
+            log_attempt(meta, "title_scripod", False, str(e), source=raw)
 
         try:
             ep = resolve_title_to_itunes_episode(raw)

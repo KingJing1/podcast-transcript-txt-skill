@@ -138,6 +138,7 @@ Priority order:
 Notes:
 - X/Twitter is a resolver path, not a guaranteed transcript source.
 - Official transcript URL input is supported directly.
+- Plain title path is specialized: `ytsearch1` -> Scripod `search -> channel -> transcript` -> Apple `podcastEpisode` -> audio ASR.
 - ASR outputs are intentionally marked as draft in `meta.json`.
 
 ## Resolution Matrix
@@ -148,7 +149,7 @@ Notes:
 | Official transcript URL | Parse transcript page / JSON directly | None | `official-link-direct` |
 | Episode webpage (e.g. Xiaoyuzhou) | Try official transcript parse | Extract `og:audio` / JSON-LD audio -> Local ASR | `episode-page-asr` |
 | Direct audio URL (`.m4a/.mp3/...`) | Local ASR | None | `audio-url-asr` |
-| Plain title | YouTube title search | Apple Podcasts `podcastEpisode` search -> episode audio -> Local ASR | `title->ytsearch1` / `title->itunes-episode-asr` |
+| Plain title | YouTube title search | Scripod `search -> channel -> transcript`; if not matched, Apple Podcasts `podcastEpisode` search -> episode audio -> Local ASR | `title->ytsearch1` / `title->scripod-api` / `title->itunes-episode-asr` |
 | X/Twitter link | Resolve outbound links | Title hint search -> normal title flow | `x_*` + downstream resolver |
 
 ## Boundaries And Guarantees

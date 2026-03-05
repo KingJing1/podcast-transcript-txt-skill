@@ -23,7 +23,7 @@ All transcript outputs are working drafts; always recommend one strong-LLM proof
 - Stable path B: if input is direct official transcript URL/JSON, parse it directly.
 - Stable path C: if input is direct audio URL, go to local ASR path.
 - Stable path D: if input is episode webpage, attempt transcript parse, then extract `og:audio`/JSON-LD audio as ASR source.
-- Stable path E: if input is plain title, resolve with `ytsearch1`, then Apple `podcastEpisode` search fallback.
+- Stable path E: if input is plain title, resolve with `ytsearch1`, then Scripod `search -> channel -> transcript` resolver, then Apple `podcastEpisode` search fallback.
 - Optional path: if input is X/Twitter URL, try outbound link resolution or compact title hint fallback, then follow A-E.
 
 3. Fetch transcript in strict priority order.
@@ -83,7 +83,7 @@ Outputs:
 
 ## Host-Specific Notes
 
-- `scripod.com`: prefer `/api/transcript/<episode_id>`.
+- `scripod.com`: prefer `/api/transcript/<episode_id>`; for plain titles use `/api/search/?entity=episode` then `/api/channel/?feedUrl=...` to resolve episode id.
 - YouTube: use `yt-dlp` with `youtube:player_client=android`; try language set in this order: `zh-*` then `en-orig` then `en`.
 - Xiaoyuzhou and similar episode pages: extract `og:audio` / JSON-LD media URL, then run ASR fallback.
 

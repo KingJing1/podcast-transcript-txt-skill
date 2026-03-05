@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.0 - 2026-03-05
+
+- 核心解析链更新（纯标题输入）：
+  - 新增 `Scripod search -> channel -> transcript` 解析路径，命中时直接输出官方 transcript，不进入 ASR。
+  - 仅在 Scripod 未命中时，继续回退 Apple `podcastEpisode` -> episode audio -> local ASR。
+  - `meta.json.resolver` 新增/强化 `title->scripod-api` 诊断标识，`attempts[]` 增加 `title_scripod` 轨迹。
+- 规则与文档同步：
+  - `SKILL.md` 的 plain-title 决策树已与脚本一致。
+  - `README.md` 更新了解析顺序说明与 Resolution Matrix（Plain title 行）。
+
 ## v0.2.0 - 2026-02-22
 
 - 核心脚本增强：
