@@ -6,8 +6,8 @@ description: Deterministic workflow to find and export full podcast transcripts 
 # Podcast Transcript TXT
 
 ## Overview
-Produce clean TXT transcripts for podcast/video episodes with a fixed decision tree.
-Prioritize official transcript sources first, then platform subtitles, then local ASR fallback.
+Produce clean TXT transcript-like outputs for podcast/video episodes with a fixed decision tree.
+Prioritize official transcript sources first, then platform subtitles or official page text, then local ASR fallback.
 ASR fallback uses `faster-whisper` with selectable `--asr-model small|medium` (default `small`).
 All transcript outputs are working drafts; always recommend one strong-LLM proofreading pass.
 
@@ -21,15 +21,17 @@ All transcript outputs are working drafts; always recommend one strong-LLM proof
 2. Resolve canonical episode source.
 - Stable path A: if input is YouTube URL/ID, use it directly.
 - Stable path B: if input is direct official transcript URL/JSON, parse it directly.
+- Stable path B2: if input is a local official transcript file (`.ttml`, supported `.json`), parse it directly.
 - Stable path C: if input is direct audio URL, go to local ASR path.
-- Stable path D: if input is episode webpage, attempt transcript parse, then extract `og:audio`/JSON-LD audio as ASR source.
+- Stable path D: if input is episode webpage, attempt transcript parse, then structured page text, then extract `og:audio`/JSON-LD audio as ASR source.
 - Stable path E: if input is plain title, resolve with `ytsearch1`, then Scripod `search -> channel -> transcript` resolver, then Apple `podcastEpisode` search fallback.
 - Optional path: if input is X/Twitter URL, try outbound link resolution or compact title hint fallback, then follow A-E.
 
 3. Fetch transcript in strict priority order.
 - Priority A: official transcript/API source from episode host (including YouTube description outbound links).
 - Priority B: platform subtitles via `yt-dlp` (`youtube:player_client=android`).
-- Priority C: local ASR fallback when A/B unavailable and an audio source is available (`faster-whisper`, `--asr-model small|medium`, default `small`).
+- Priority C: structured page text from episode webpage when it is clearly visible and substantial.
+- Priority D: local ASR fallback when A/B/C unavailable and an audio source is available (`faster-whisper`, `--asr-model small|medium`, default `small`).
 
 4. Error and boundary handling.
 - If A/B/C all fail, return exact failed stage and error detail.
@@ -46,8 +48,8 @@ All transcript outputs are working drafts; always recommend one strong-LLM proof
 ## Deterministic Rules
 
 1. Do not jump between random methods.
-- Always follow A -> B -> C.
-- C requires an audio source (direct audio URL / episode webpage audio / Apple episode audio).
+- Always follow A -> B -> C -> D.
+- D requires an audio source (direct audio URL / episode webpage audio / Apple episode audio).
 - Record the failure reason before moving to next tier.
 
 2. Default security posture.
@@ -60,10 +62,10 @@ All transcript outputs are working drafts; always recommend one strong-LLM proof
 - If blocked after A/B/C, return one minimal user command to unblock.
 
 4. Delivery quality contract.
-- Explicitly state that output TXT is a draft, not final publish-ready text.
+- Explicitly state that output TXT may be transcript, subtitle-derived text, or visible page text depending on resolver.
 - Explicitly recommend one strong-LLM proofreading pass for names/terms/punctuation.
 - Keep this notice concise but always present in final user-facing delivery.
-- Prompt users to choose ASR model (`small` or `medium`) and explain tradeoff in one sentence.
+- Ask for ASR model (`small` or `medium`) only when the run is likely to hit audio fallback, and explain the tradeoff in one sentence.
 - Remind users that delivery includes both `*.txt` and `*.meta.json`.
 
 ## Quick Start
@@ -85,7 +87,8 @@ Outputs:
 
 - `scripod.com`: prefer `/api/transcript/<episode_id>`; for plain titles use `/api/search/?entity=episode` then `/api/channel/?feedUrl=...` to resolve episode id.
 - YouTube: use `yt-dlp` with `youtube:player_client=android`; try language set in this order: `zh-*` then `en-orig` then `en`.
-- Xiaoyuzhou and similar episode pages: extract `og:audio` / JSON-LD media URL, then run ASR fallback.
+- Xiaoyuzhou episode pages: prefer structured page text (`shownotes` / visible text), keep `transcriptMediaId` as a metadata clue, and only then fall back to audio ASR.
+- Apple transcript files: parse `.ttml` directly instead of re-running ASR.
 
 ## References
 

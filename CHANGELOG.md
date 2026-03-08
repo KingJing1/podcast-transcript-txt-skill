@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.1 - 2026-03-08
+
+- Episode page 优化：
+  - 小宇宙页面新增 structured page text 回退，优先复用 `shownotes` / 可见文本，不再默认直接进入 ASR。
+  - `meta.json` 新增 `episode-page-text` 解析结果与 `page_text` 元数据。
+  - 保留 `transcriptMediaId` 作为后续官方 transcript 线索，不再忽略。
+- 现成 transcript 复用：
+  - 新增本地 transcript 文件直读，支持 `.ttml` 和受支持的 `.json`。
+  - 远端 TTML transcript URL 也可直接解析，不再重复转 ASR。
+- 稳定性与验证：
+  - 启动时增加 Python 3.10+ 前置检查。
+  - 新增解析测试，覆盖 TTML 和小宇宙页面结构化文本。
+
 ## v0.3.0 - 2026-03-05
 
 - 核心解析链更新（纯标题输入）：

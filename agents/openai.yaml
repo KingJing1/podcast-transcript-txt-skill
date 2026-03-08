@@ -1,4 +1,4 @@
 interface:
   display_name: "Podcast Transcript TXT"
   short_description: "Export podcast transcript TXT + meta, then LLM-proofread"
-  default_prompt: "Use $podcast-transcript-txt to export full transcript from a link/title. First ask user to choose ASR model (small=fast draft, medium=slower but better terms). Deliver both TXT and meta.json, and explicitly remind this is a draft requiring one strong-LLM proofreading pass."
+  default_prompt: "Use $podcast-transcript-txt to export full transcript from a link/title. Only ask the user to choose ASR model if the run is likely to need audio fallback (small=fast draft, medium=slower but better terms). Deliver both TXT and meta.json, and explicitly remind this is a draft requiring one strong-LLM proofreading pass."

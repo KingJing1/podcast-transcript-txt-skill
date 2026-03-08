@@ -26,6 +26,7 @@ import sys
 import tempfile
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -47,6 +48,13 @@ SUPPORTED_ASR_MODELS = ("small", "medium")
 
 def run(cmd: List[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def ensure_supported_python() -> None:
+    if sys.version_info < (3, 10):
+        raise RuntimeError(
+            f"Python 3.10+ is required; current version is {sys.version_info.major}.{sys.version_info.minor}"
+        )
 
 
 def compact_ws(s: str) -> str:
@@ -108,6 +116,10 @@ def http_get(url: str, timeout: int = 25) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8", errors="ignore")
+
+
+def load_text_file(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="ignore")
 
 
 def looks_like_audio_url(url: str) -> bool:
@@ -518,6 +530,70 @@ def clean_html_fragment(raw: str) -> str:
     return compact_ws(text)
 
 
+def looks_like_ttml_payload(text: str) -> bool:
+    sample = (text or "")[:800].lower()
+    return "<tt" in sample and ("</tt>" in sample or "<body" in sample)
+
+
+def parse_ttml_time(value: str) -> float:
+    v = compact_ws(value).replace(",", ".")
+    if not v:
+        return 0.0
+    if v.endswith("s"):
+        try:
+            return float(v[:-1])
+        except ValueError:
+            return 0.0
+    m = re.fullmatch(r"(\d+):(\d{2}):(\d{2})(?:\.(\d+))?", v)
+    if not m:
+        return 0.0
+    hour = int(m.group(1))
+    minute = int(m.group(2))
+    second = int(m.group(3))
+    frac = float(f"0.{m.group(4)}") if m.group(4) else 0.0
+    return hour * 3600 + minute * 60 + second + frac
+
+
+def local_name(name: str) -> str:
+    return name.rsplit("}", 1)[-1]
+
+
+def parse_ttml_transcript_text(ttml_text: str) -> List[str]:
+    try:
+        root = ET.fromstring(ttml_text)
+    except ET.ParseError as e:
+        raise RuntimeError(f"invalid TTML transcript: {e}") from e
+
+    lines: List[str] = []
+    for node in root.iter():
+        if local_name(node.tag) != "p":
+            continue
+        parts = [compact_ws(chunk) for chunk in node.itertext()]
+        text = compact_ws(" ".join(part for part in parts if part))
+        if not text:
+            continue
+
+        begin = ""
+        speaker = ""
+        for key, value in node.attrib.items():
+            key_name = local_name(key).lower()
+            if key_name in {"begin", "start"} and not begin:
+                begin = str(value)
+            if key_name in {"speaker", "voice", "data-speaker"} and not speaker:
+                speaker = compact_ws(str(value))
+
+        ts = seconds_to_hms(parse_ttml_time(begin))
+        if speaker:
+            lines.append(f"[{ts}] {speaker}: {text}")
+        else:
+            lines.append(f"[{ts}] {text}")
+
+    lines = dedup_consecutive(lines)
+    if len(lines) < 2:
+        raise RuntimeError("TTML transcript parsed too few lines")
+    return lines
+
+
 def parse_substack_transcription_data(payload: Any) -> List[str]:
     lines: List[str] = []
 
@@ -653,6 +729,92 @@ def parse_lex_transcript_html(page_html: str) -> List[str]:
     return lines
 
 
+def extract_next_data(page_html: str) -> Dict[str, Any]:
+    m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', page_html, re.S)
+    if not m:
+        return {}
+    try:
+        data = json.loads(m.group(1))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def nested_get_dict(root: Dict[str, Any], *keys: str) -> Dict[str, Any]:
+    cur: Any = root
+    for key in keys:
+        if not isinstance(cur, dict):
+            return {}
+        cur = cur.get(key)
+    return cur if isinstance(cur, dict) else {}
+
+
+def title_from_page_html(page_html: str) -> str:
+    title = extract_og_content(page_html, "og:title")
+    if title:
+        return compact_ws(title)
+    m = re.search(r"<title>(.*?)</title>", page_html, flags=re.I | re.S)
+    return compact_ws(html.unescape(m.group(1))) if m else "podcast episode"
+
+
+def extract_structured_page_text_from_html(url: str, page_html: str) -> Tuple[str, List[str], Dict[str, Any]]:
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.netloc.lower()
+    title = title_from_page_html(page_html)
+
+    if "xiaoyuzhoufm.com" not in host:
+        raise RuntimeError("structured page text currently supports Xiaoyuzhou only")
+
+    data = extract_next_data(page_html)
+    episode = nested_get_dict(data, "props", "pageProps", "episode")
+    if not episode:
+        raise RuntimeError("xiaoyuzhou page missing episode payload")
+
+    shownotes_html = str(episode.get("shownotes") or "").strip()
+    description = compact_ws(str(episode.get("description") or ""))
+    transcript = episode.get("transcript") or {}
+    transcript_media_id = str(episode.get("transcriptMediaId") or "").strip()
+    if isinstance(transcript, dict) and not transcript_media_id:
+        transcript_media_id = compact_ws(str(transcript.get("mediaId") or ""))
+
+    candidates: List[Tuple[str, str]] = []
+    if shownotes_html:
+        candidates.append(("shownotes", clean_html_fragment(shownotes_html)))
+    if description:
+        candidates.append(("description", description))
+    if not candidates:
+        raise RuntimeError("xiaoyuzhou page has no visible text payload")
+
+    kind, text = max(candidates, key=lambda item: len(item[1]))
+    lines = split_lines(text)
+    metrics = quality_metrics(lines)
+    if metrics["total_chars"] < 80 or metrics["line_count"] < 2:
+        raise RuntimeError("xiaoyuzhou page text is too small")
+
+    meta = {
+        "kind": kind,
+        "transcript_media_id": transcript_media_id,
+        "has_transcript_marker": bool(transcript_media_id),
+    }
+    return title, lines, meta
+
+
+def extract_structured_page_text(url: str, page_html: Optional[str] = None) -> Tuple[str, List[str], Dict[str, Any]]:
+    page = page_html if page_html is not None else http_get(url, timeout=30)
+    return extract_structured_page_text_from_html(url, page)
+
+
+def parse_official_transcript_file(path: Path) -> Tuple[List[str], str]:
+    payload = load_text_file(path)
+    suffix = path.suffix.lower()
+    if looks_like_ttml_payload(payload) or suffix in {".ttml", ".xml"}:
+        return parse_ttml_transcript_text(payload), str(path)
+    if suffix == ".json":
+        data = json.loads(payload)
+        return parse_substack_transcription_data(data), str(path)
+    raise RuntimeError("unsupported local transcript file format")
+
+
 def parse_official_transcript_url(url: str) -> Tuple[List[str], str]:
     parsed = urllib.parse.urlparse(url)
     host = parsed.netloc.lower()
@@ -665,6 +827,9 @@ def parse_official_transcript_url(url: str) -> Tuple[List[str], str]:
         return parse_substack_transcription_json(url), url
 
     page_html = http_get(url)
+
+    if looks_like_ttml_payload(page_html):
+        return parse_ttml_transcript_text(page_html), url
 
     for candidate in extract_transcription_json_urls(page_html):
         try:
@@ -851,8 +1016,8 @@ def extract_og_content(page_html: str, prop: str) -> Optional[str]:
     return None
 
 
-def extract_audio_from_episode_page(url: str) -> Tuple[str, str]:
-    page = http_get(url, timeout=30)
+def extract_audio_from_episode_page(url: str, page_html: Optional[str] = None) -> Tuple[str, str]:
+    page = page_html if page_html is not None else http_get(url, timeout=30)
     audio = extract_og_content(page, "og:audio")
     if not audio:
         ld = re.findall(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', page, flags=re.I | re.S)
@@ -871,11 +1036,7 @@ def extract_audio_from_episode_page(url: str) -> Tuple[str, str]:
     if not audio:
         raise RuntimeError("episode page has no og:audio or associatedMedia.contentUrl")
 
-    title = extract_og_content(page, "og:title")
-    if not title:
-        m = re.search(r"<title>(.*?)</title>", page, flags=re.I | re.S)
-        title = compact_ws(html.unescape(m.group(1))) if m else "podcast episode"
-    return compact_ws(title), compact_ws(audio)
+    return title_from_page_html(page), compact_ws(audio)
 
 
 def download_audio_file(audio_url: str, dest: Path) -> None:
@@ -1189,7 +1350,13 @@ def process_audio_url_target(
     return write_outputs(out_dir, title, stable_id, lines, meta)
 
 
-def process_item(raw: str, out_dir: Path, ytdlp: Optional[str], asr_model: str) -> Tuple[Path, Path]:
+def process_item(
+    raw: str,
+    out_dir: Path,
+    ytdlp: Optional[str],
+    asr_model: str,
+    page_text_fallback: str,
+) -> Tuple[Path, Path]:
     meta: Dict[str, Any] = {
         "input": raw,
         "resolver": None,
@@ -1200,6 +1367,25 @@ def process_item(raw: str, out_dir: Path, ytdlp: Optional[str], asr_model: str) 
     }
 
     raw = raw.strip()
+
+    local_path = Path(raw).expanduser()
+    if not is_url(raw) and local_path.exists() and local_path.is_file():
+        try:
+            lines, actual_source = parse_official_transcript_file(local_path)
+            m = quality_metrics(lines)
+            title_guess = compact_ws(local_path.stem.replace("-", " ").replace("_", " ")) or "official transcript"
+            meta["resolver"] = "official-file-direct"
+            meta["source"] = actual_source
+            meta["quality"] = m
+            if is_low_quality(m):
+                meta["status"] = "warn"
+                meta["notes"].append("local transcript file parsed but readability is below threshold")
+                log_attempt(meta, "A_local_official", False, f"low quality output: {m}", source=actual_source)
+            else:
+                log_attempt(meta, "A_local_official", True, f"parsed {m['line_count']} lines", source=actual_source)
+            return write_outputs(out_dir, title_guess, stable_id_from_url(local_path.resolve().as_uri()), lines, meta)
+        except Exception as e:
+            log_attempt(meta, "A_local_official", False, str(e), source=str(local_path))
 
     # A) Direct known transcript host.
     if is_url(raw) and "scripod.com/episode/" in raw:
@@ -1264,6 +1450,7 @@ def process_item(raw: str, out_dir: Path, ytdlp: Optional[str], asr_model: str) 
 
     # C) Generic non-YouTube URL: audio URL or episode page -> local ASR.
     if is_url(raw) and not ("x.com/" in raw or "twitter.com/" in raw) and not extract_youtube_id(raw):
+        page_html: Optional[str] = None
         if looks_like_audio_url(raw):
             guessed_title = compact_ws(Path(urllib.parse.urlparse(raw).path).stem.replace("-", " ").replace("_", " "))
             guessed_title = guessed_title or "podcast episode"
@@ -1284,7 +1471,28 @@ def process_item(raw: str, out_dir: Path, ytdlp: Optional[str], asr_model: str) 
                 raise
 
         try:
-            page_title, audio_url = extract_audio_from_episode_page(raw)
+            page_html = http_get(raw, timeout=30)
+            log_attempt(meta, "page_fetch", True, "fetched episode page", source=raw)
+        except Exception as e:
+            log_attempt(meta, "page_fetch", False, str(e), source=raw)
+
+        if page_html and page_text_fallback != "off":
+            try:
+                page_title, lines, page_meta = extract_structured_page_text(raw, page_html=page_html)
+                metrics = quality_metrics(lines)
+                meta["resolver"] = "episode-page-text"
+                meta["source"] = raw
+                meta["quality"] = metrics
+                meta["page_text"] = page_meta
+                meta["status"] = "warn"
+                meta["notes"].append("Used visible page text or show notes instead of a time-aligned transcript.")
+                log_attempt(meta, "B_page_text", True, f"kind={page_meta['kind']}, lines={metrics['line_count']}", source=raw)
+                return write_outputs(out_dir, page_title, stable_id_from_url(raw), lines, meta)
+            except Exception as e:
+                log_attempt(meta, "B_page_text", False, str(e), source=raw)
+
+        try:
+            page_title, audio_url = extract_audio_from_episode_page(raw, page_html=page_html)
             sid = stable_id_from_url(raw)
             log_attempt(meta, "C_episode_page", True, "extracted og:audio from episode page", source=raw)
             return process_audio_url_target(
@@ -1391,8 +1599,16 @@ def main() -> int:
         choices=SUPPORTED_ASR_MODELS,
         help=f"ASR model name (default: {DEFAULT_ASR_MODEL})",
     )
+    parser.add_argument(
+        "--page-text-fallback",
+        default="auto",
+        choices=("auto", "off"),
+        help="For episode webpages, prefer visible page text/show notes before ASR (default: auto)",
+    )
     parser.add_argument("--bootstrap-models", nargs="+", help="Pre-download ASR models to persistent local root")
     args = parser.parse_args()
+
+    ensure_supported_python()
 
     out_dir = Path(args.out_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1410,7 +1626,7 @@ def main() -> int:
     failures = 0
     for raw in args.input or []:
         try:
-            txt, meta = process_item(raw, out_dir, ytdlp, args.asr_model)
+            txt, meta = process_item(raw, out_dir, ytdlp, args.asr_model, args.page_text_fallback)
             print(f"OK\t{txt}")
             print(f"META\t{meta}")
         except Exception as e:

@@ -1,7 +1,7 @@
 # Podcast Transcript TXT Skill
 
-A lightweight, deterministic CLI to export podcast transcripts as clean `.txt` files.
-Turn any podcast source into clean TXT — YouTube, episode webpages, Xiaoyuzhou, Apple Podcasts, X links, or just a title.
+A lightweight, deterministic CLI to export podcast transcript-like text as clean `.txt` files.
+Turn any podcast source into clean TXT — YouTube, episode webpages, Xiaoyuzhou, Apple Podcasts, X links, official transcript files, or just a title.
 
 ## Important Quality Expectation
 
@@ -14,7 +14,7 @@ Turn any podcast source into clean TXT — YouTube, episode webpages, Xiaoyuzhou
 Use this when handing the skill to end users:
 
 ```text
-Choose ASR model:
+If audio fallback is needed, choose ASR model:
 - small (default): faster, lighter, best for first draft
 - medium: slower, larger, usually better on names/terms
 
@@ -27,8 +27,9 @@ Important: this transcript is a draft. Run one strong-LLM proofreading pass befo
 
 This project is designed for practical reliability:
 - Prefer official transcript sources when available.
+- Reuse visible page text or show notes before running heavy ASR when a host exposes meaningful text but no ready transcript.
 - Fallback to YouTube subtitles when needed.
-- If no transcript/captions are available, fallback to local ASR (`faster-whisper`, selectable `small|medium`, default `small`).
+- If no transcript/page text/captions are available, fallback to local ASR (`faster-whisper`, selectable `small|medium`, default `small`).
 - Emit machine-readable diagnostics for every run.
 
 ## TL;DR
@@ -51,6 +52,7 @@ Output:
 - Multiple input types:
   - YouTube URL / ID
   - Episode webpages (e.g. Xiaoyuzhou)
+  - Official transcript files (`.ttml`, supported `.json`)
   - Direct audio URLs
   - Apple Podcasts episode discovery from plain title
   - Episode title keywords
@@ -133,11 +135,13 @@ Exit code:
 Priority order:
 1. Official transcript sources (including links found in YouTube descriptions).
 2. YouTube subtitles via `yt-dlp`.
-3. Local ASR (`faster-whisper`, `--asr-model small|medium`, default `small`) from audio URL / episode page / Apple podcastEpisode search.
+3. Structured page text / show notes when an episode webpage exposes meaningful visible text.
+4. Local ASR (`faster-whisper`, `--asr-model small|medium`, default `small`) from audio URL / episode page / Apple podcastEpisode search.
 
 Notes:
 - X/Twitter is a resolver path, not a guaranteed transcript source.
-- Official transcript URL input is supported directly.
+- Official transcript URL input and local transcript file input are supported directly.
+- `episode-page-text` is page text, not a time-aligned transcript.
 - Plain title path is specialized: `ytsearch1` -> Scripod `search -> channel -> transcript` -> Apple `podcastEpisode` -> audio ASR.
 - ASR outputs are intentionally marked as draft in `meta.json`.
 
@@ -146,8 +150,8 @@ Notes:
 | Input Type | First Attempt | Fallback Chain | Final Resolver (example) |
 |---|---|---|---|
 | YouTube URL / ID | Official links in video description | YouTube subtitles (if unavailable, fail with stage detail) | `official-link` / `youtube-id` |
-| Official transcript URL | Parse transcript page / JSON directly | None | `official-link-direct` |
-| Episode webpage (e.g. Xiaoyuzhou) | Try official transcript parse | Extract `og:audio` / JSON-LD audio -> Local ASR | `episode-page-asr` |
+| Official transcript URL / file | Parse transcript page / JSON / TTML directly | None | `official-link-direct` / `official-file-direct` |
+| Episode webpage (e.g. Xiaoyuzhou) | Try official transcript parse | Structured page text -> `og:audio` / JSON-LD audio -> Local ASR | `episode-page-text` / `episode-page-asr` |
 | Direct audio URL (`.m4a/.mp3/...`) | Local ASR | None | `audio-url-asr` |
 | Plain title | YouTube title search | Scripod `search -> channel -> transcript`; if not matched, Apple Podcasts `podcastEpisode` search -> episode audio -> Local ASR | `title->ytsearch1` / `title->scripod-api` / `title->itunes-episode-asr` |
 | X/Twitter link | Resolve outbound links | Title hint search -> normal title flow | `x_*` + downstream resolver |
@@ -172,8 +176,9 @@ Out of scope:
 
 1. If official transcript exists and parses cleanly, always use it.
 2. If official transcript is missing or low quality, use platform subtitles.
-3. If subtitles are missing/unreadable and an audio source is available, run local ASR (`--asr-model small|medium`, default `small`).
-4. If all routes fail, surface exact failed stage and unblock action in CLI error + `meta.json`.
+3. If an episode webpage exposes meaningful visible text, use it before heavy ASR and mark it clearly as page text.
+4. If subtitles/page text are missing or unusable and an audio source is available, run local ASR (`--asr-model small|medium`, default `small`).
+5. If all routes fail, surface exact failed stage and unblock action in CLI error + `meta.json`.
 
 ## ASR Runtime And Quality Expectation
 
