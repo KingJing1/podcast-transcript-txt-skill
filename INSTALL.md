@@ -2,7 +2,7 @@
 
 ## 依赖
 
-- `python3`（建议 3.10+）
+- `python3`（必须 3.10+）
 - `yt-dlp`
 - `faster-whisper`（用于 ASR fallback，支持 `small|medium`）
 
@@ -39,7 +39,7 @@ python3 scripts/podcast_transcript_txt.py --bootstrap-models small
 python3 scripts/podcast_transcript_txt.py --bootstrap-models medium
 ```
 
-运行时选择模型：
+只有在可能走音频回退时，才需要关心 ASR 模型：
 
 ```bash
 python3 scripts/podcast_transcript_txt.py \
@@ -85,7 +85,7 @@ python3 scripts/podcast_transcript_txt.py \
 ## 推荐给最终用户的提示文案（可直接复制）
 
 ```text
-Choose ASR model:
+If audio fallback is needed, choose ASR model:
 - small (default): faster, lighter, best for first draft
 - medium: slower, larger, usually better on names/terms
 
@@ -113,6 +113,7 @@ Important: this transcript is a draft. Run one strong-LLM proofreading pass befo
 ## 输入建议
 
 - 优先：YouTube 直链
-- 可直接：官方 transcript 页/JSON 链接
+- 可直接：官方 transcript 页 / JSON / TTML 文件
+- 小宇宙这类 episode page：会先尝试页面可见文字，再考虑 ASR
 - 次优：标题关键词
 - X/Twitter：best-effort，不保证每条都能直达字幕源

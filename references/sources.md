@@ -13,6 +13,11 @@ Use official transcript pages/APIs when available.
     - `lexfridman.com/*-transcript`
     - Direct `substackcdn.com/.../transcription.json`
   - Reliability: medium-high (depends on host availability / paywall)
+- Direct transcript files
+  - Typical formats:
+    - `.ttml`
+    - supported `.json`
+  - Reliability: high when the file is first-party or exported from Apple/host platform
 
 Why first:
 - Highest semantic accuracy
@@ -36,10 +41,29 @@ Common errors and deterministic handling:
 - `429 Too Many Requests`: back off, then retry with narrower language list
 - Missing zh subtitles: fallback to `en-orig/en` and continue
 
-## Priority C: Local ASR fallback (not included in current script)
+## Priority C: Structured page text
 
-Current release intentionally keeps dependencies minimal (`python3 + yt-dlp`).
-If needed in your fork, add optional local ASR (`faster-whisper` / `whisper`) as an explicit opt-in path.
+Use visible page text or show notes when the host exposes meaningful text but not a clean transcript endpoint.
+
+- Example:
+  - Xiaoyuzhou episode page `shownotes`
+- Reliability: medium
+- Important:
+  - This is useful text, but it is not the same thing as a time-aligned transcript
+  - Mark this clearly in `meta.json` and user-facing delivery
+
+## Priority D: Local ASR fallback
+
+Use local ASR only when A/B/C are unavailable and an audio source is available.
+
+- Current implementation:
+  - `faster-whisper`
+  - selectable `small|medium`
+- Reliability: medium
+- Tradeoff:
+  - broadest coverage
+  - highest compute cost
+  - most likely to introduce term/name mistakes
 
 ## Security Guardrails
 

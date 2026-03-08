@@ -43,11 +43,11 @@ python3 -c "import faster_whisper; print('ok')"
 
 ## 6) 转写耗时太久（这是正常的吗）
 
-当前 ASR 固定模型是 `medium`，速度换准确率。  
+当前 ASR 支持 `small` 和 `medium`。`small` 更快，`medium` 更稳。  
 CPU 机器上常见范围：
 
-- 30 分钟音频：15-35 分钟
-- 60 分钟音频：30-70 分钟
+- 30 分钟音频：`small` 约 8-20 分钟，`medium` 约 15-35 分钟
+- 60 分钟音频：`small` 约 16-40 分钟，`medium` 约 30-70 分钟
 
 如果你只要极速初稿，建议先改用可用字幕来源（YouTube）而不是纯 ASR。
 
@@ -70,8 +70,16 @@ Proofread this transcript with minimal edits: fix obvious homophone errors and p
 打开同名 `*.meta.json`：
 
 - `resolver=official-link`：已走官方 transcript 外链  
+- `resolver=official-file-direct`：直接解析本地 transcript 文件  
 - `resolver=youtube-id` / `title->ytsearch1`：走字幕回退  
+- `resolver=episode-page-text`：走页面可见文字 / shownotes，不是时间轴 transcript  
+- `resolver=episode-page-asr` / `resolver=audio-url-asr`：已进入 ASR  
 - `attempts[]`：每一步的成功/失败原因
+
+如果是小宇宙这类页面，还可以看：
+
+- `page_text.kind`：是 `shownotes` 还是 `description`
+- `page_text.transcript_media_id`：页面里是否出现 transcript 线索
 
 ## 9) 标题输入没有命中正确节目
 
@@ -87,7 +95,17 @@ Proofread this transcript with minimal edits: fix obvious homophone errors and p
 
 并用 `meta.json.attempts[]` 检查命中来源。
 
-## 10) Git 推送常见问题
+## 10) CLI 一启动就报 Python 版本错误
+
+当前版本会显式要求 Python 3.10+。如果你看到类似：
+
+```text
+Python 3.10+ is required
+```
+
+说明脚本没有坏，是解释器太旧。先换到 3.10+ 再跑。
+
+## 11) Git 推送常见问题
 
 `Repository not found`：
 
