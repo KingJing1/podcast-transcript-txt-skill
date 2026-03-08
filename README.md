@@ -245,3 +245,7 @@ See:
 ## License
 
 MIT. See [`LICENSE`](./LICENSE).
+
+## Author
+
+[@一龙小包子](https://x.com/KingJing001)
