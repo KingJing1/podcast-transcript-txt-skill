@@ -271,6 +271,7 @@ See:
 
 ## Project Docs
 
+- [`AGENTS.md`](./AGENTS.md)
 - [`SKILL.md`](./SKILL.md)
 - [`CHANGELOG.md`](./CHANGELOG.md)
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md)

@@ -11,6 +11,7 @@
   - 新增 `requirements.txt`，提供标准依赖安装入口。
   - 新增 `--doctor` 环境自检，用于判断“拿仓库后能不能直接跑正式转写”。
   - README / INSTALL / TROUBLESHOOTING 补齐 agent quick start 和自检流程。
+  - 新增仓库根目录 `AGENTS.md`，让 OpenClaw / Codex 这类 agent 拿到仓库后先按统一流程安装、自检、再转写。
 
 ## v0.3.1 - 2026-03-08
 
