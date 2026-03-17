@@ -74,7 +74,7 @@ Minimum pass condition for "directly usable":
 
 ## Features
 
-- Deterministic source strategy (official first, subtitles second, ASR third).
+- Deterministic source strategy (official first, subtitles second, ASR third, with timely fallback).
 - Multiple input types:
   - YouTube URL / ID
   - Episode webpages (e.g. Xiaoyuzhou)
@@ -171,7 +171,7 @@ Notes:
 - X/Twitter is a resolver path, not a guaranteed transcript source.
 - Official transcript URL input and local transcript file input are supported directly.
 - `episode-page-text` is page text, not a time-aligned transcript.
-- Plain title path is specialized: `ytsearch1` -> Scripod `search -> channel -> transcript` -> Apple `podcastEpisode` -> audio ASR.
+- Plain title path is specialized: Scripod `search -> channel -> transcript` -> `ytsearch1` -> Apple `podcastEpisode` -> audio ASR.
 - ASR outputs are intentionally marked as draft in `meta.json`.
 
 ## Resolution Matrix
@@ -182,7 +182,7 @@ Notes:
 | Official transcript URL / file | Parse transcript page / JSON / TTML directly | None | `official-link-direct` / `official-file-direct` |
 | Episode webpage (e.g. Xiaoyuzhou) | Try official transcript parse | Structured page text -> `og:audio` / JSON-LD audio -> Local ASR | `episode-page-text` / `episode-page-asr` |
 | Direct audio URL (`.m4a/.mp3/...`) | Local ASR | None | `audio-url-asr` |
-| Plain title | YouTube title search | Scripod `search -> channel -> transcript`; if not matched, Apple Podcasts `podcastEpisode` search -> episode audio -> Local ASR | `title->ytsearch1` / `title->scripod-api` / `title->itunes-episode-asr` |
+| Plain title | Scripod `search -> channel -> transcript` | YouTube title search; if not matched, Apple Podcasts `podcastEpisode` search -> episode audio -> Local ASR | `title->scripod-api` / `title->ytsearch1` / `title->itunes-episode-asr` |
 | X/Twitter link | Resolve outbound links | Title hint search -> normal title flow | `x_*` + downstream resolver |
 
 ## Boundaries And Guarantees
@@ -204,11 +204,13 @@ Out of scope:
 ## Priority And Escalation Rules
 
 1. If official transcript exists and parses cleanly, always use it.
-2. If official transcript is missing or low quality, use platform subtitles.
-3. For YouTube inputs, if subtitles are missing or unusable, fallback to local ASR from YouTube audio.
-4. If an episode webpage exposes meaningful visible text, use it before heavy ASR and mark it clearly as page text.
-5. If subtitles/page text are missing or unusable and an audio source is available, run local ASR (`--asr-model small|medium`, default `small`).
-6. If all routes fail, surface exact failed stage and unblock action in CLI error + `meta.json`.
+2. Direct audio URLs should skip transcript-page parsing and go straight to local ASR.
+3. If official transcript is missing or low quality, use platform subtitles.
+4. For YouTube inputs, if subtitles are missing or unusable, fallback to local ASR from YouTube audio.
+5. For plain-title inputs, prefer Scripod official transcript matches before YouTube search and Apple audio ASR.
+6. If an episode webpage exposes meaningful visible text, use it before heavy ASR and mark it clearly as page text.
+7. If subtitles/page text are missing or unusable and an audio source is available, run local ASR (`--asr-model small|medium`, default `small`).
+8. If all routes fail, surface exact failed stage and unblock action in CLI error + `meta.json`.
 
 ## ASR Runtime And Quality Expectation
 

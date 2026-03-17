@@ -136,6 +136,62 @@ class ParserTests(unittest.TestCase):
             self.assertEqual(meta_data["resolver"], "youtube-id-asr")
             self.assertEqual(meta_data["asr"]["model"], "small")
 
+    def test_process_item_direct_audio_url_skips_official_transcript_parser(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            out_dir = Path(td) / "out"
+            out_dir.mkdir()
+            meta_txt = out_dir / "episode [id].txt"
+            meta_json = out_dir / "episode [id].meta.json"
+            meta_txt.write_text("ok\n", encoding="utf-8")
+            meta_json.write_text("{}\n", encoding="utf-8")
+            with mock.patch.object(MODULE, "parse_official_transcript_url") as parse_official_mock, mock.patch.object(
+                MODULE,
+                "process_audio_url_target",
+                return_value=(meta_txt, meta_json),
+            ) as audio_mock:
+                txt_path, meta_path = MODULE.process_item(
+                    "https://example.com/audio.mp3",
+                    out_dir,
+                    ytdlp="yt-dlp",
+                    asr_model="small",
+                    page_text_fallback="auto",
+                )
+            parse_official_mock.assert_not_called()
+            self.assertTrue(audio_mock.called)
+            self.assertEqual(txt_path, meta_txt)
+            self.assertEqual(meta_path, meta_json)
+
+    def test_process_item_plain_title_prefers_scripod_before_youtube(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            out_dir = Path(td) / "out"
+            out_dir.mkdir()
+            with mock.patch.object(
+                MODULE,
+                "resolve_title_to_scripod_episode",
+                return_value={
+                    "episode_id": "sp123",
+                    "track_name": "Best Episode",
+                    "collection_name": "Best Show",
+                    "feed_url": "https://feed.example.com",
+                    "episode_guid": "guid123",
+                },
+            ) as scripod_resolve_mock, mock.patch.object(
+                MODULE,
+                "parse_scripod_transcript",
+                return_value=("sp123", "Best Episode", ["[00:00:01] Official transcript"]),
+            ), mock.patch.object(MODULE, "resolve_title_to_youtube") as youtube_mock:
+                txt_path, meta_path = MODULE.process_item(
+                    "Best Episode",
+                    out_dir,
+                    ytdlp="yt-dlp",
+                    asr_model="small",
+                    page_text_fallback="auto",
+                )
+            self.assertTrue(scripod_resolve_mock.called)
+            youtube_mock.assert_not_called()
+            self.assertTrue(txt_path.exists())
+            self.assertTrue(meta_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

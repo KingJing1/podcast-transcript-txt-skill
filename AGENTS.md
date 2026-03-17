@@ -77,6 +77,8 @@ Return:
 
 - This repo is designed for direct agent use after dependency install and `--doctor` success.
 - For YouTube links, try the built-in chain: official transcript -> subtitles -> local audio ASR fallback.
+- For plain titles, prefer Scripod official transcript matches before YouTube search.
+- For direct audio URLs, go straight to ASR instead of transcript-page parsing.
 - Do not assume YouTube subtitles or official transcripts always exist.
 - Local ASR fallback depends on `faster-whisper`.
 - Do not describe the repo as publish-ready transcript quality; it produces a working draft.

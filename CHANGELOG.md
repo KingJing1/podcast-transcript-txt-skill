@@ -15,6 +15,9 @@
 - YouTube 成功率修复：
   - YouTube 直链新增音频 ASR fallback，不再在“无官方 transcript / 无字幕”时直接失败。
   - 新增测试，覆盖 “YouTube subtitles 失败 -> 自动转本地 ASR” 路径。
+- 分支顺序修复：
+  - 直链音频 URL 现在直接进入 ASR，不再先误走 transcript-page 解析。
+  - 标题输入现在优先尝试 Scripod 官方 transcript，再回退 YouTube / Apple 音频 ASR。
 
 ## v0.3.1 - 2026-03-08
 

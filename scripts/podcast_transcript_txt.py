@@ -1568,6 +1568,26 @@ def process_item(
             log_attempt(meta, "A_direct_scripod", False, str(e), source=raw)
             raise
 
+    # A2) Direct audio URL should go straight to ASR fallback, not transcript-page parsing.
+    if is_url(raw) and looks_like_audio_url(raw):
+        guessed_title = compact_ws(Path(urllib.parse.urlparse(raw).path).stem.replace("-", " ").replace("_", " "))
+        guessed_title = guessed_title or "podcast episode"
+        sid = stable_id_from_url(raw)
+        try:
+            log_attempt(meta, "C_audio_url", True, "detected direct audio url", source=raw)
+            return process_audio_url_target(
+                raw,
+                guessed_title,
+                sid,
+                out_dir,
+                meta,
+                resolver_name="audio-url-asr",
+                asr_model=asr_model,
+            )
+        except Exception as e:
+            log_attempt(meta, "C_audio_url", False, str(e), source=raw)
+            raise
+
     # A2) Direct official transcript page/json URL.
     if is_url(raw) and not ("x.com/" in raw or "twitter.com/" in raw) and not extract_youtube_id(raw):
         try:
@@ -1615,28 +1635,9 @@ def process_item(
                 log_attempt(meta, "x_resolve", False, "no usable direct source and no title hint", source=raw)
                 raise RuntimeError("x status resolved no usable transcript source and no searchable text hint")
 
-    # C) Generic non-YouTube URL: audio URL or episode page -> local ASR.
+    # C) Generic non-YouTube URL: episode page -> page text or local ASR.
     if is_url(raw) and not ("x.com/" in raw or "twitter.com/" in raw) and not extract_youtube_id(raw):
         page_html: Optional[str] = None
-        if looks_like_audio_url(raw):
-            guessed_title = compact_ws(Path(urllib.parse.urlparse(raw).path).stem.replace("-", " ").replace("_", " "))
-            guessed_title = guessed_title or "podcast episode"
-            sid = stable_id_from_url(raw)
-            try:
-                log_attempt(meta, "C_audio_url", True, "detected direct audio url", source=raw)
-                return process_audio_url_target(
-                    raw,
-                    guessed_title,
-                    sid,
-                    out_dir,
-                    meta,
-                    resolver_name="audio-url-asr",
-                    asr_model=asr_model,
-                )
-            except Exception as e:
-                log_attempt(meta, "C_audio_url", False, str(e), source=raw)
-                raise
-
         try:
             page_html = http_get(raw, timeout=30)
             log_attempt(meta, "page_fetch", True, "fetched episode page", source=raw)
@@ -1680,23 +1681,8 @@ def process_item(
         video_url = youtube_url_from_id(vid)
         return process_youtube_target(ytdlp, video_url, out_dir, meta, resolver_name="youtube-id", asr_model=asr_model)
 
-    # D) Plain title: YouTube first, then Scripod transcript API, then Apple podcastEpisode -> ASR.
+    # D) Plain title: Scripod transcript API first, then YouTube, then Apple podcastEpisode -> ASR.
     if not is_url(raw):
-        if ytdlp:
-            try:
-                info = resolve_title_to_youtube(ytdlp, raw)
-                log_attempt(meta, "title_search", True, f"matched video {info['id']}", source=info["webpage_url"])
-                return process_youtube_target(
-                    ytdlp,
-                    info["webpage_url"],
-                    out_dir,
-                    meta,
-                    resolver_name="title->ytsearch1",
-                    asr_model=asr_model,
-                )
-            except Exception as e:
-                log_attempt(meta, "title_search", False, str(e), source=raw)
-
         try:
             sp = resolve_title_to_scripod_episode(raw)
             eid = sp["episode_id"]
@@ -1711,6 +1697,21 @@ def process_item(
             return write_outputs(out_dir, sp["track_name"], eid, lines, meta)
         except Exception as e:
             log_attempt(meta, "title_scripod", False, str(e), source=raw)
+
+        if ytdlp:
+            try:
+                info = resolve_title_to_youtube(ytdlp, raw)
+                log_attempt(meta, "title_search", True, f"matched video {info['id']}", source=info["webpage_url"])
+                return process_youtube_target(
+                    ytdlp,
+                    info["webpage_url"],
+                    out_dir,
+                    meta,
+                    resolver_name="title->ytsearch1",
+                    asr_model=asr_model,
+                )
+            except Exception as e:
+                log_attempt(meta, "title_search", False, str(e), source=raw)
 
         try:
             ep = resolve_title_to_itunes_episode(raw)
