@@ -6,10 +6,10 @@ description: Deterministic workflow to find and export full podcast transcripts 
 # Podcast Transcript TXT
 
 ## Overview
-Use the single persistent local runtime at `/Users/jing/Desktop/podcast_transcripts`.
-Do not maintain a second transcription stack inside the skill itself.
-Default delivery is one final `.txt`; metadata is opt-in with `--emit-meta`.
-Current runtime is audio-first local ASR using the persistent virtualenv and model cache already present on this machine.
+Produce clean TXT transcript-like outputs for podcast/video episodes with a fixed decision tree.
+Prioritize official transcript sources first, then platform subtitles or official page text, then local ASR fallback.
+ASR fallback uses `faster-whisper` with selectable `--asr-model small|medium` (default `small`).
+All transcript outputs are working drafts; always recommend one strong-LLM proofreading pass.
 
 ## Workflow Decision Tree
 
@@ -19,19 +19,23 @@ Current runtime is audio-first local ASR using the persistent virtualenv and mod
 - X/Twitter status URL: best-effort resolver to outbound sources.
 
 2. Resolve canonical episode source.
-- Stable path A: if input is a Xiaoyuzhou episode URL, resolve the page and extract `og:audio`, using local cached HTML as fallback when needed.
-- Stable path B: if input is a direct audio URL, use it directly.
-- Stable path C: if input is a local audio file, use it directly.
-- Avoid maintaining a separate resolver tree in the skill unless the desktop runtime is updated first.
+- Stable path A: if input is YouTube URL/ID, use it directly.
+- Stable path B: if input is direct official transcript URL/JSON, parse it directly.
+- Stable path B2: if input is a local official transcript file (`.ttml`, supported `.json`), parse it directly.
+- Stable path C: if input is direct audio URL, go to local ASR path.
+- Stable path D: if input is episode webpage, attempt transcript parse, then structured page text, then extract `og:audio`/JSON-LD audio as ASR source.
+- Stable path E: if input is plain title, resolve with `ytsearch1`, then Scripod `search -> channel -> transcript` resolver, then Apple `podcastEpisode` search fallback.
+- Optional path: if input is X/Twitter URL, try outbound link resolution or compact title hint fallback, then follow A-E.
 
 3. Fetch transcript in strict priority order.
-- Priority A: reuse existing local caches and persistent model files.
-- Priority B: fetch episode page/audio only if the needed file is not already cached.
-- Priority C: run local Whisper ASR with the persistent runtime.
+- Priority A: official transcript/API source from episode host (including YouTube description outbound links).
+- Priority B: platform subtitles via `yt-dlp` (`youtube:player_client=android`).
+- Priority C: structured page text from episode webpage when it is clearly visible and substantial.
+- Priority D: local ASR fallback when A/B/C unavailable and an audio source is available (`faster-whisper`, `--asr-model small|medium`, default `small`).
 
 4. Error and boundary handling.
 - If A/B/C all fail, return exact failed stage and error detail.
-- Record every step into metadata in-memory; only persist `meta.json.attempts[]` when explicitly requested.
+- Record every step into `meta.json.attempts[]`.
 - Do not bypass login/paywall/DRM protections.
 
 5. Clean and export.
@@ -39,8 +43,7 @@ Current runtime is audio-first local ASR using the persistent virtualenv and mod
 - Collapse rolling-caption duplication.
 - Run readability quality checks; if needed, apply aggressive secondary splitting.
 - Keep paragraph-level readability.
-- Write one TXT file per input item by default.
-- Only write `*.meta.json` when debugging or when the user explicitly asks for metadata.
+- Write one TXT file per input item.
 
 ## Deterministic Rules
 
@@ -55,7 +58,7 @@ Current runtime is audio-first local ASR using the persistent virtualenv and mod
 
 3. Failure reporting contract.
 - Return: failed stage, exact error type, and next action already attempted.
-- Persist each attempt in `meta.json` (`attempts[]`) only when metadata output is enabled.
+- Persist each attempt in `meta.json` (`attempts[]`).
 - If blocked after A/B/C, return one minimal user command to unblock.
 
 4. Delivery quality contract.
@@ -63,8 +66,7 @@ Current runtime is audio-first local ASR using the persistent virtualenv and mod
 - Explicitly recommend one strong-LLM proofreading pass for names/terms/punctuation.
 - Keep this notice concise but always present in final user-facing delivery.
 - Ask for ASR model (`small` or `medium`) only when the run is likely to hit audio fallback, and explain the tradeoff in one sentence.
-- Default delivery is only the final `*.txt`.
-- Mention `*.meta.json` only when `--emit-meta` is used or the user explicitly asks for debugging traces.
+- Remind users that delivery includes both `*.txt` and `*.meta.json`.
 
 ## Quick Start
 
@@ -72,33 +74,21 @@ Run (recommended stable usage):
 
 ```bash
 python3 /Users/jing/.codex/skills/podcast-transcript-txt/scripts/podcast_transcript_txt.py \
-  --input "https://www.xiaoyuzhoufm.com/episode/69b3b675772ac2295bfc01d0" \
+  --input "https://www.youtube.com/watch?v=aR20FWCCjAs" \
+  --input "播客标题关键词" \
   --out-dir "/Users/jing/Documents/New project"
 ```
 
 Outputs:
 - `<title> [<id>].txt`
-- optional: `<title> [<id>].meta.json` when `--emit-meta` is passed
+- `<title> [<id>].meta.json`
 
-Debug mode:
+## Host-Specific Notes
 
-```bash
-python3 /Users/jing/.codex/skills/podcast-transcript-txt/scripts/podcast_transcript_txt.py \
-  --input "https://www.youtube.com/watch?v=aR20FWCCjAs" \
-  --out-dir "/Users/jing/Documents/New project" \
-  --emit-meta
-```
-
-## Local Runtime Contract
-
-- Source of truth config: `/Users/jing/Desktop/podcast_transcripts/runtime.json`
-- Source of truth script: `/Users/jing/Desktop/podcast_transcripts/transcribe_episode.py`
-- Persistent environment: `/Users/jing/Desktop/podcast_transcripts/.venv-whisper`
-- Persistent model cache: `/Users/jing/Desktop/podcast_transcripts/model-cache`
-- Persistent audio cache: `/Users/jing/Desktop/podcast_transcripts/audio-cache`
-- Final outputs: `/Users/jing/Desktop/podcast_transcripts/output`
-
-If any of these paths change, update the desktop runtime first, then keep this skill wrapper aligned with it.
+- `scripod.com`: prefer `/api/transcript/<episode_id>`; for plain titles use `/api/search/?entity=episode` then `/api/channel/?feedUrl=...` to resolve episode id.
+- YouTube: use `yt-dlp` with `youtube:player_client=android`; try language set in this order: `zh-*` then `en-orig` then `en`.
+- Xiaoyuzhou episode pages: prefer structured page text (`shownotes` / visible text), keep `transcriptMediaId` as a metadata clue, and only then fall back to audio ASR.
+- Apple transcript files: parse `.ttml` directly instead of re-running ASR.
 
 ## References
 
@@ -106,5 +96,4 @@ If any of these paths change, update the desktop runtime first, then keep this s
 
 ## Scripts
 
-- Unified wrapper: `scripts/podcast_transcript_txt.py`
-- Runtime executor: `/Users/jing/Desktop/podcast_transcripts/transcribe_episode.py`
+- Main executor: `scripts/podcast_transcript_txt.py`
