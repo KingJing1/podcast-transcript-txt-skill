@@ -1,6 +1,8 @@
 import importlib.util
+import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -88,6 +90,51 @@ class ParserTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, 0)
         self.assertTrue(all(item["status"] == "OK" for item in checks))
+
+    def test_process_youtube_target_falls_back_to_asr_when_subtitles_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            out_dir = Path(td) / "out"
+            out_dir.mkdir()
+            fake_audio = Path(td) / "audio.m4a"
+            fake_audio.write_text("stub", encoding="utf-8")
+            meta = {
+                "input": "https://www.youtube.com/watch?v=abcdefghijk",
+                "resolver": None,
+                "source": None,
+                "status": "ok",
+                "notes": [],
+                "attempts": [],
+            }
+            with mock.patch.object(
+                MODULE,
+                "youtube_metadata",
+                return_value={
+                    "id": "abcdefghijk",
+                    "title": "YouTube Test",
+                    "webpage_url": "https://www.youtube.com/watch?v=abcdefghijk",
+                    "description": "",
+                },
+            ), mock.patch.object(MODULE, "official_links_from_description", return_value=[]), mock.patch.object(
+                MODULE, "run_subtitle_pipeline", side_effect=RuntimeError("no subtitle file downloaded")
+            ), mock.patch.object(MODULE, "download_youtube_audio", return_value=fake_audio) as download_mock, mock.patch.object(
+                MODULE,
+                "run_local_asr",
+                return_value=(["[00:00:01] Hello from ASR"], {"model": "small"}),
+            ):
+                txt_path, meta_path = MODULE.process_youtube_target(
+                    "yt-dlp",
+                    "https://www.youtube.com/watch?v=abcdefghijk",
+                    out_dir,
+                    meta,
+                    resolver_name="youtube-id",
+                    asr_model="small",
+                )
+
+            self.assertTrue(download_mock.called)
+            self.assertEqual(txt_path.read_text(encoding="utf-8").strip(), "[00:00:01] Hello from ASR")
+            meta_data = json.loads(meta_path.read_text(encoding="utf-8"))
+            self.assertEqual(meta_data["resolver"], "youtube-id-asr")
+            self.assertEqual(meta_data["asr"]["model"], "small")
 
 
 if __name__ == "__main__":

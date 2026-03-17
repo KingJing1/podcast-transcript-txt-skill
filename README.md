@@ -28,7 +28,7 @@ Important: this transcript is a draft. Run one strong-LLM proofreading pass befo
 This project is designed for practical reliability:
 - Prefer official transcript sources when available.
 - Reuse visible page text or show notes before running heavy ASR when a host exposes meaningful text but no ready transcript.
-- Fallback to YouTube subtitles when needed.
+- Fallback to YouTube subtitles when needed, then local YouTube-audio ASR if subtitles are unavailable or unusable.
 - If no transcript/page text/captions are available, fallback to local ASR (`faster-whisper`, selectable `small|medium`, default `small`).
 - Emit machine-readable diagnostics for every run.
 
@@ -163,8 +163,9 @@ Exit code:
 Priority order:
 1. Official transcript sources (including links found in YouTube descriptions).
 2. YouTube subtitles via `yt-dlp`.
-3. Structured page text / show notes when an episode webpage exposes meaningful visible text.
-4. Local ASR (`faster-whisper`, `--asr-model small|medium`, default `small`) from audio URL / episode page / Apple podcastEpisode search.
+3. Local ASR (`faster-whisper`, `--asr-model small|medium`, default `small`) from YouTube audio when official transcript/subtitles are unavailable or unusable.
+4. Structured page text / show notes when an episode webpage exposes meaningful visible text.
+5. Local ASR (`faster-whisper`, `--asr-model small|medium`, default `small`) from audio URL / episode page / Apple podcastEpisode search.
 
 Notes:
 - X/Twitter is a resolver path, not a guaranteed transcript source.
@@ -177,7 +178,7 @@ Notes:
 
 | Input Type | First Attempt | Fallback Chain | Final Resolver (example) |
 |---|---|---|---|
-| YouTube URL / ID | Official links in video description | YouTube subtitles (if unavailable, fail with stage detail) | `official-link` / `youtube-id` |
+| YouTube URL / ID | Official links in video description | YouTube subtitles -> YouTube audio ASR fallback | `official-link` / `youtube-id` / `youtube-id-asr` |
 | Official transcript URL / file | Parse transcript page / JSON / TTML directly | None | `official-link-direct` / `official-file-direct` |
 | Episode webpage (e.g. Xiaoyuzhou) | Try official transcript parse | Structured page text -> `og:audio` / JSON-LD audio -> Local ASR | `episode-page-text` / `episode-page-asr` |
 | Direct audio URL (`.m4a/.mp3/...`) | Local ASR | None | `audio-url-asr` |
@@ -204,9 +205,10 @@ Out of scope:
 
 1. If official transcript exists and parses cleanly, always use it.
 2. If official transcript is missing or low quality, use platform subtitles.
-3. If an episode webpage exposes meaningful visible text, use it before heavy ASR and mark it clearly as page text.
-4. If subtitles/page text are missing or unusable and an audio source is available, run local ASR (`--asr-model small|medium`, default `small`).
-5. If all routes fail, surface exact failed stage and unblock action in CLI error + `meta.json`.
+3. For YouTube inputs, if subtitles are missing or unusable, fallback to local ASR from YouTube audio.
+4. If an episode webpage exposes meaningful visible text, use it before heavy ASR and mark it clearly as page text.
+5. If subtitles/page text are missing or unusable and an audio source is available, run local ASR (`--asr-model small|medium`, default `small`).
+6. If all routes fail, surface exact failed stage and unblock action in CLI error + `meta.json`.
 
 ## ASR Runtime And Quality Expectation
 

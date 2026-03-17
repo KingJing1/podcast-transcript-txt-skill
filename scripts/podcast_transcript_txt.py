@@ -531,6 +531,21 @@ def choose_vtt(video_id: str, workdir: Path) -> Optional[Path]:
     return sorted(cands)[0]
 
 
+def choose_downloaded_audio(video_id: str, workdir: Path) -> Optional[Path]:
+    cands: List[Path] = []
+    for p in glob.glob(str(workdir / f"{video_id}.*")):
+        path = Path(p)
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in AUDIO_EXTS:
+            continue
+        cands.append(path)
+    if not cands:
+        return None
+    order = {ext: i for i, ext in enumerate(AUDIO_EXTS)}
+    return sorted(cands, key=lambda item: (order.get(item.suffix.lower(), 999), item.name))[0]
+
+
 def download_youtube_vtt(ytdlp: str, video_url: str, video_id: str, workdir: Path) -> Path:
     lang_sets = [
         "zh-Hans,zh-CN,zh-Hant,zh,en-orig,en",
@@ -557,6 +572,27 @@ def download_youtube_vtt(ytdlp: str, video_url: str, video_id: str, workdir: Pat
         if vtt is not None:
             return vtt
     raise RuntimeError("no subtitle file downloaded")
+
+
+def download_youtube_audio(ytdlp: str, video_url: str, video_id: str, workdir: Path) -> Path:
+    cmd = [
+        ytdlp,
+        "--no-playlist",
+        "-f",
+        "bestaudio/best",
+        "--extractor-args",
+        "youtube:player_client=android",
+        "-o",
+        str(workdir / "%(id)s.%(ext)s"),
+        video_url,
+    ]
+    p = run(cmd)
+    if p.returncode != 0:
+        raise RuntimeError(f"yt-dlp audio download failed: {compact_ws(p.stderr)}")
+    audio_path = choose_downloaded_audio(video_id, workdir)
+    if audio_path is None:
+        raise RuntimeError("no audio file downloaded")
+    return audio_path
 
 
 def scripod_episode_id(url: str) -> Optional[str]:
@@ -1368,7 +1404,14 @@ def write_outputs(out_dir: Path, title: str, stable_id: str, lines: List[str], m
     return txt_path, meta_path
 
 
-def process_youtube_target(ytdlp: str, target: str, out_dir: Path, meta: Dict[str, Any], resolver_name: str) -> Tuple[Path, Path]:
+def process_youtube_target(
+    ytdlp: str,
+    target: str,
+    out_dir: Path,
+    meta: Dict[str, Any],
+    resolver_name: str,
+    asr_model: str,
+) -> Tuple[Path, Path]:
     info = youtube_metadata(ytdlp, target)
     real_id = info["id"]
     title = info["title"]
@@ -1401,16 +1444,48 @@ def process_youtube_target(ytdlp: str, target: str, out_dir: Path, meta: Dict[st
                 log_attempt(meta, "A_official", False, str(e), source=link)
 
     # Priority B: platform subtitles.
-    lines, metrics = run_subtitle_pipeline(ytdlp, page_url, real_id, meta)
-    meta["resolver"] = resolver_name
-    meta["quality"] = metrics
-    if is_low_quality(metrics):
+    subtitle_candidate: Optional[Tuple[List[str], Dict[str, float]]] = None
+    try:
+        lines, metrics = run_subtitle_pipeline(ytdlp, page_url, real_id, meta)
+        if is_low_quality(metrics):
+            subtitle_candidate = (lines, metrics)
+            meta["status"] = "warn"
+            meta["notes"].append("subtitle transcript quality is low; trying local ASR fallback")
+            log_attempt(meta, "B_subtitle", False, f"low quality output: {metrics}", source=page_url)
+        else:
+            meta["resolver"] = resolver_name
+            meta["quality"] = metrics
+            log_attempt(meta, "B_subtitle", True, f"subtitle extraction ok: {metrics}", source=page_url)
+            return write_outputs(out_dir, title, real_id, lines, meta)
+    except Exception as e:
+        log_attempt(meta, "B_subtitle", False, str(e), source=page_url)
+
+    # Priority C: local ASR from YouTube audio.
+    try:
+        with tempfile.TemporaryDirectory(prefix="podcast_youtube_asr_") as td:
+            audio_path = download_youtube_audio(ytdlp, page_url, real_id, Path(td))
+            lines, asr_meta = run_local_asr(audio_path, asr_model)
+        metrics = quality_metrics(lines)
+        meta["resolver"] = f"{resolver_name}-asr"
+        meta["source"] = page_url
+        meta["quality"] = metrics
+        meta["asr"] = asr_meta
         meta["status"] = "warn"
-        meta["notes"].append("subtitle transcript quality is low; try official transcript links or rerun later")
-        log_attempt(meta, "B_subtitle", False, f"low quality output: {metrics}", source=page_url)
-    else:
-        log_attempt(meta, "B_subtitle", True, f"subtitle extraction ok: {metrics}", source=page_url)
-    return write_outputs(out_dir, title, real_id, lines, meta)
+        meta["notes"].append(
+            "Used local ASR fallback after YouTube official transcript/subtitle path was unavailable or low quality."
+        )
+        log_attempt(meta, "C_youtube_asr", True, f"model={asr_model}, lines={len(lines)}", source=page_url)
+        return write_outputs(out_dir, title, real_id, lines, meta)
+    except Exception as e:
+        log_attempt(meta, "C_youtube_asr", False, str(e), source=page_url)
+        if subtitle_candidate is not None:
+            lines, metrics = subtitle_candidate
+            meta["resolver"] = resolver_name
+            meta["quality"] = metrics
+            meta["status"] = "warn"
+            meta["notes"].append("subtitle transcript quality is low, and YouTube audio ASR fallback failed")
+            return write_outputs(out_dir, title, real_id, lines, meta)
+        raise RuntimeError(f"youtube transcript/subtitle failed and ASR fallback failed: {e}")
 
 
 def process_audio_url_target(
@@ -1603,7 +1678,7 @@ def process_item(
     vid = extract_youtube_id(raw)
     if vid and ytdlp:
         video_url = youtube_url_from_id(vid)
-        return process_youtube_target(ytdlp, video_url, out_dir, meta, resolver_name="youtube-id")
+        return process_youtube_target(ytdlp, video_url, out_dir, meta, resolver_name="youtube-id", asr_model=asr_model)
 
     # D) Plain title: YouTube first, then Scripod transcript API, then Apple podcastEpisode -> ASR.
     if not is_url(raw):
@@ -1611,7 +1686,14 @@ def process_item(
             try:
                 info = resolve_title_to_youtube(ytdlp, raw)
                 log_attempt(meta, "title_search", True, f"matched video {info['id']}", source=info["webpage_url"])
-                return process_youtube_target(ytdlp, info["webpage_url"], out_dir, meta, resolver_name="title->ytsearch1")
+                return process_youtube_target(
+                    ytdlp,
+                    info["webpage_url"],
+                    out_dir,
+                    meta,
+                    resolver_name="title->ytsearch1",
+                    asr_model=asr_model,
+                )
             except Exception as e:
                 log_attempt(meta, "title_search", False, str(e), source=raw)
 

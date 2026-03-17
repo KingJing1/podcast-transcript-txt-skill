@@ -12,6 +12,9 @@
   - 新增 `--doctor` 环境自检，用于判断“拿仓库后能不能直接跑正式转写”。
   - README / INSTALL / TROUBLESHOOTING 补齐 agent quick start 和自检流程。
   - 新增仓库根目录 `AGENTS.md`，让 OpenClaw / Codex 这类 agent 拿到仓库后先按统一流程安装、自检、再转写。
+- YouTube 成功率修复：
+  - YouTube 直链新增音频 ASR fallback，不再在“无官方 transcript / 无字幕”时直接失败。
+  - 新增测试，覆盖 “YouTube subtitles 失败 -> 自动转本地 ASR” 路径。
 
 ## v0.3.1 - 2026-03-08
 

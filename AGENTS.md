@@ -76,6 +76,7 @@ Return:
 ## Notes
 
 - This repo is designed for direct agent use after dependency install and `--doctor` success.
+- For YouTube links, try the built-in chain: official transcript -> subtitles -> local audio ASR fallback.
 - Do not assume YouTube subtitles or official transcripts always exist.
 - Local ASR fallback depends on `faster-whisper`.
 - Do not describe the repo as publish-ready transcript quality; it produces a working draft.
