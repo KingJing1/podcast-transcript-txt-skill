@@ -8,6 +8,14 @@
 ls -lh /你的输出目录
 ```
 
+正式转写前，先跑一遍：
+
+```bash
+python3 scripts/podcast_transcript_txt.py --doctor
+```
+
+如果 `--doctor` 不是退出码 `0`，先把缺的依赖装齐。
+
 ## 2) YouTube 报 `PO token` / `429` / 网络失败
 
 已内置 `youtube:player_client=android`。仍失败时建议：
@@ -37,8 +45,8 @@ ls -lh /你的输出目录
 说明当前环境缺少 ASR 依赖。安装后重试：
 
 ```bash
-pip install faster-whisper
-python3 -c "import faster_whisper; print('ok')"
+python3 -m pip install -r requirements.txt
+python3 scripts/podcast_transcript_txt.py --doctor
 ```
 
 ## 6) 转写耗时太久（这是正常的吗）
@@ -105,7 +113,17 @@ Python 3.9+ is required
 
 说明脚本没有坏，是解释器太旧。先换到 3.9+ 再跑。
 
-## 11) Git 推送常见问题
+## 11) `--doctor` 失败是什么意思
+
+常见输出：
+
+- `DOCTOR FAIL yt-dlp`：先执行 `python3 -m pip install -r requirements.txt`
+- `DOCTOR FAIL faster-whisper`：同样先安装 `requirements.txt`
+- `DOCTOR FAIL model-root`：说明模型缓存目录不可写，换个有权限的用户目录再跑
+
+只有当 `--doctor` 退出码是 `0`，我才建议把仓库直接交给别人的 agent 做正式转写。
+
+## 12) Git 推送常见问题
 
 `Repository not found`：
 

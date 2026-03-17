@@ -7,6 +7,10 @@
   - `SKILL.md` 与主入口重新回到仓库内单一真源，不再依赖 `/Users/jing/Desktop/...` 私有绝对路径。
 - 兼容性修复：
   - Python 前置检查从 3.10+ 调整为 3.9+，与当前脚本实际可运行范围保持一致。
+- Agent 交付修复：
+  - 新增 `requirements.txt`，提供标准依赖安装入口。
+  - 新增 `--doctor` 环境自检，用于判断“拿仓库后能不能直接跑正式转写”。
+  - README / INSTALL / TROUBLESHOOTING 补齐 agent quick start 和自检流程。
 
 ## v0.3.1 - 2026-03-08
 

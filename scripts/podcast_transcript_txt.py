@@ -57,6 +57,97 @@ def ensure_supported_python() -> None:
         )
 
 
+def probe_faster_whisper() -> Tuple[bool, str]:
+    try:
+        import faster_whisper  # type: ignore
+
+        version = getattr(faster_whisper, "__version__", None)
+        if version:
+            return True, f"faster-whisper ok ({version})"
+        return True, "faster-whisper ok"
+    except Exception as e:
+        return False, f"missing faster-whisper; run: python3 -m pip install -r requirements.txt ({compact_ws(str(e))})"
+
+
+def ensure_model_root_writable(model_root: Path) -> Tuple[bool, str]:
+    try:
+        model_root.mkdir(parents=True, exist_ok=True)
+        return True, f"model cache root ready: {model_root}"
+    except Exception as e:
+        return False, f"model cache root not writable: {model_root} ({compact_ws(str(e))})"
+
+
+def build_doctor_checks(
+    *,
+    python_version: Optional[Tuple[int, int]] = None,
+    ytdlp_path: Optional[str] = None,
+    faster_whisper_status: Optional[Tuple[bool, str]] = None,
+    model_root_status: Optional[Tuple[bool, str]] = None,
+) -> Tuple[List[Dict[str, str]], int]:
+    py = python_version or (sys.version_info.major, sys.version_info.minor)
+    checks: List[Dict[str, str]] = []
+
+    python_ok = py >= (3, 9)
+    checks.append(
+        {
+            "name": "python",
+            "status": "OK" if python_ok else "FAIL",
+            "detail": (
+                f"python {py[0]}.{py[1]} detected"
+                if python_ok
+                else f"python {py[0]}.{py[1]} detected; need Python 3.9+"
+            ),
+        }
+    )
+
+    resolved_ytdlp = ytdlp_path if ytdlp_path is not None else (find_ytdlp() or "")
+    ytdlp_ok = bool(resolved_ytdlp)
+    checks.append(
+        {
+            "name": "yt-dlp",
+            "status": "OK" if ytdlp_ok else "FAIL",
+            "detail": (
+                f"found at {resolved_ytdlp}"
+                if ytdlp_ok
+                else "missing yt-dlp; run: python3 -m pip install -r requirements.txt"
+            ),
+        }
+    )
+
+    fw_ok, fw_detail = faster_whisper_status or probe_faster_whisper()
+    checks.append(
+        {
+            "name": "faster-whisper",
+            "status": "OK" if fw_ok else "FAIL",
+            "detail": fw_detail,
+        }
+    )
+
+    mr_ok, mr_detail = model_root_status or ensure_model_root_writable(get_model_root())
+    checks.append(
+        {
+            "name": "model-root",
+            "status": "OK" if mr_ok else "FAIL",
+            "detail": mr_detail,
+        }
+    )
+
+    exit_code = 0 if all(item["status"] == "OK" for item in checks) else 1
+    return checks, exit_code
+
+
+def run_doctor() -> int:
+    checks, exit_code = build_doctor_checks()
+    for item in checks:
+        print(f"DOCTOR\t{item['status']}\t{item['name']}\t{item['detail']}")
+
+    if exit_code == 0:
+        print("READY\tpython3 scripts/podcast_transcript_txt.py --input '<link-or-title>' --out-dir '<output-dir>'")
+    else:
+        print("FIX\tpython3 -m pip install -r requirements.txt")
+    return exit_code
+
+
 def compact_ws(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip()
 
@@ -1594,6 +1685,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Export podcast transcript to TXT with deterministic source priority")
     parser.add_argument("--input", action="append", help="YouTube URL/ID, X status URL, known episode URL, or plain title")
     parser.add_argument("--out-dir", default=".", help="Output directory")
+    parser.add_argument("--doctor", action="store_true", help="Check whether this machine is ready for direct agent use")
     parser.add_argument(
         "--asr-model",
         default=DEFAULT_ASR_MODEL,
@@ -1609,13 +1701,16 @@ def main() -> int:
     parser.add_argument("--bootstrap-models", nargs="+", help="Pre-download ASR models to persistent local root")
     args = parser.parse_args()
 
+    if args.doctor:
+        return run_doctor()
+
     ensure_supported_python()
 
     out_dir = Path(args.out_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if not args.input and not args.bootstrap_models:
-        parser.error("at least one --input is required (or use --bootstrap-models)")
+        parser.error("at least one --input is required (or use --doctor / --bootstrap-models)")
 
     if args.bootstrap_models:
         bootstrap_models(args.bootstrap_models)

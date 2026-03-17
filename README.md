@@ -37,6 +37,8 @@ This project is designed for practical reliability:
 ```bash
 git clone https://github.com/KingJing1/podcast-transcript-txt-skill.git
 cd podcast-transcript-txt-skill
+python3 -m pip install -r requirements.txt
+python3 scripts/podcast_transcript_txt.py --doctor
 python3 scripts/podcast_transcript_txt.py \
   --input "https://www.youtube.com/watch?v=aR20FWCCjAs" \
   --out-dir "/tmp/transcripts"
@@ -45,6 +47,30 @@ python3 scripts/podcast_transcript_txt.py \
 Output:
 - `<title> [<id>].txt`
 - `<title> [<id>].meta.json`
+
+## Agent Quick Start
+
+If you want another agent to use this repo directly from a GitHub link, this is the shortest reliable flow:
+
+```bash
+git clone https://github.com/KingJing1/podcast-transcript-txt-skill.git
+cd podcast-transcript-txt-skill
+python3 -m pip install -r requirements.txt
+python3 scripts/podcast_transcript_txt.py --doctor
+python3 scripts/podcast_transcript_txt.py \
+  --input "<episode-link-or-title>" \
+  --out-dir "/tmp/transcripts"
+```
+
+What `--doctor` means:
+- Exit `0`: this machine is ready for direct agent use, including ASR fallback.
+- Exit `1`: install or fix the missing runtime before asking the agent to transcribe.
+
+Minimum pass condition for "directly usable":
+- Python 3.9+
+- `yt-dlp`
+- `faster-whisper`
+- writable model cache root
 
 ## Features
 
@@ -73,8 +99,8 @@ Quick check:
 
 ```bash
 python3 --version
-yt-dlp --version
-python3 -c "import faster_whisper; print('faster-whisper ok')"
+python3 -m pip install -r requirements.txt
+python3 scripts/podcast_transcript_txt.py --doctor
 ```
 
 ## Installation
@@ -84,6 +110,8 @@ python3 -c "import faster_whisper; print('faster-whisper ok')"
 ```bash
 git clone https://github.com/KingJing1/podcast-transcript-txt-skill.git
 cd podcast-transcript-txt-skill
+python3 -m pip install -r requirements.txt
+python3 scripts/podcast_transcript_txt.py --doctor
 ```
 
 ### Option B: Install as a Codex skill
@@ -214,6 +242,12 @@ Proofread this draft transcript with minimal edits: fix obvious homophone errors
 ## Agent Integration
 
 This is a CLI-first tool, so any agent that can execute shell commands can use it.
+
+Recommended agent sequence:
+1. Clone the repo.
+2. Run `python3 -m pip install -r requirements.txt`.
+3. Run `python3 scripts/podcast_transcript_txt.py --doctor`.
+4. Only after `--doctor` exits `0`, run the real transcript command.
 
 Typical integrations:
 - Codex

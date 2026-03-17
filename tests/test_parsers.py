@@ -66,6 +66,29 @@ class ParserTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "TTML transcript parsed too few lines"):
                 MODULE.process_item(str(bad_ttml), out_dir, ytdlp=None, asr_model="small", page_text_fallback="auto")
 
+    def test_build_doctor_checks_reports_missing_dependencies(self) -> None:
+        checks, exit_code = MODULE.build_doctor_checks(
+            python_version=(3, 9),
+            ytdlp_path="",
+            faster_whisper_status=(False, "missing faster-whisper"),
+            model_root_status=(True, "model root ready"),
+        )
+        self.assertEqual(exit_code, 1)
+        by_name = {item["name"]: item for item in checks}
+        self.assertEqual(by_name["python"]["status"], "OK")
+        self.assertEqual(by_name["yt-dlp"]["status"], "FAIL")
+        self.assertEqual(by_name["faster-whisper"]["status"], "FAIL")
+
+    def test_build_doctor_checks_reports_ready(self) -> None:
+        checks, exit_code = MODULE.build_doctor_checks(
+            python_version=(3, 11),
+            ytdlp_path="/usr/local/bin/yt-dlp",
+            faster_whisper_status=(True, "faster-whisper ok"),
+            model_root_status=(True, "model root ready"),
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(all(item["status"] == "OK" for item in checks))
+
 
 if __name__ == "__main__":
     unittest.main()
