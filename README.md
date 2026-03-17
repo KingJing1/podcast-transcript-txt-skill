@@ -65,7 +65,7 @@ Output:
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.9+
 - `yt-dlp`
 - For ASR fallback: `faster-whisper` (and system ffmpeg runtime available to PyAV)
 

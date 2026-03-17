@@ -2,7 +2,7 @@
 
 ## 依赖
 
-- `python3`（必须 3.10+）
+- `python3`（必须 3.9+）
 - `yt-dlp`
 - `faster-whisper`（用于 ASR fallback，支持 `small|medium`）
 

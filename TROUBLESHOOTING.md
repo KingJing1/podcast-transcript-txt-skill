@@ -97,13 +97,13 @@ Proofread this transcript with minimal edits: fix obvious homophone errors and p
 
 ## 10) CLI 一启动就报 Python 版本错误
 
-当前版本会显式要求 Python 3.10+。如果你看到类似：
+当前版本会显式要求 Python 3.9+。如果你看到类似：
 
 ```text
-Python 3.10+ is required
+Python 3.9+ is required
 ```
 
-说明脚本没有坏，是解释器太旧。先换到 3.10+ 再跑。
+说明脚本没有坏，是解释器太旧。先换到 3.9+ 再跑。
 
 ## 11) Git 推送常见问题
 

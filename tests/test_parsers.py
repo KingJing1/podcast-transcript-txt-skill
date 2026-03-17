@@ -1,4 +1,5 @@
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -53,6 +54,17 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(meta["kind"], "shownotes")
         self.assertEqual(meta["transcript_media_id"], "abc123.m4a")
         self.assertTrue(meta["has_transcript_marker"])
+
+    def test_process_item_surfaces_local_transcript_parse_error(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            bad_ttml = Path(td) / "bad.ttml"
+            bad_ttml.write_text(
+                '<tt><body><div><p begin="00:00:01.000">Only one line</p></div></body></tt>',
+                encoding="utf-8",
+            )
+            out_dir = Path(td) / "out"
+            with self.assertRaisesRegex(RuntimeError, "TTML transcript parsed too few lines"):
+                MODULE.process_item(str(bad_ttml), out_dir, ytdlp=None, asr_model="small", page_text_fallback="auto")
 
 
 if __name__ == "__main__":

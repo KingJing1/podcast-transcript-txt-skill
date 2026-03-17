@@ -51,9 +51,9 @@ def run(cmd: List[str]) -> subprocess.CompletedProcess:
 
 
 def ensure_supported_python() -> None:
-    if sys.version_info < (3, 10):
+    if sys.version_info < (3, 9):
         raise RuntimeError(
-            f"Python 3.10+ is required; current version is {sys.version_info.major}.{sys.version_info.minor}"
+            f"Python 3.9+ is required; current version is {sys.version_info.major}.{sys.version_info.minor}"
         )
 
 
@@ -1386,6 +1386,7 @@ def process_item(
             return write_outputs(out_dir, title_guess, stable_id_from_url(local_path.resolve().as_uri()), lines, meta)
         except Exception as e:
             log_attempt(meta, "A_local_official", False, str(e), source=str(local_path))
+            raise
 
     # A) Direct known transcript host.
     if is_url(raw) and "scripod.com/episode/" in raw:
