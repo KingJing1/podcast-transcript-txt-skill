@@ -1,7 +1,5 @@
 # Podcast Transcript TXT Skill
 
-> 先有文字，才有思考。
-
 A lightweight, deterministic CLI to export podcast transcript-like text as clean `.txt` files.
 Turn any podcast source into clean TXT — YouTube, episode webpages, Xiaoyuzhou, Apple Podcasts, X links, official transcript files, or just a title.
 
