@@ -45,6 +45,17 @@ All transcript outputs are working drafts; always recommend one strong-LLM proof
 - Keep paragraph-level readability.
 - Write one TXT file per input item.
 
+6. Speaker draft (optional post-process — run after step 5 when transcript is ready).
+- Trigger: always run this step. Do not wait for the user to ask.
+- Input: the transcript from step 5 + `meta.json` (title, description, shownotes, chapters).
+- Extract speaker hints from metadata: episode title, guest name mentions, intro/outro text.
+- Re-read the transcript and annotate each paragraph with the most likely speaker.
+- Format each turn as `[Name]: text`. If uncertain, use `[?]: text`.
+- For ASR-derived transcripts: names and terms may have phonetic errors — cross-reference metadata to correct obvious mismatches before attributing.
+- Do not invent speaker names not inferable from the transcript or metadata.
+- Output: `<same-base-name>.speaker-draft.txt` alongside the existing `*.txt`. Never overwrite the original transcript.
+- Add a one-line header to the speaker-draft file: `# Speaker Draft — inferred, not authoritative. ASR source.`
+
 ## Deterministic Rules
 
 1. Do not jump between random methods.
