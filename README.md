@@ -1,13 +1,22 @@
 # Podcast Transcript TXT Skill
 
-A lightweight, deterministic CLI to export podcast transcript-like text as clean `.txt` files.
-Turn any podcast source into clean TXT — YouTube, episode webpages, Xiaoyuzhou, Apple Podcasts, X links, official transcript files, or just a title.
+Turn any podcast source into clean `.txt` — YouTube, episode webpages, Xiaoyuzhou, Apple Podcasts, X links, official transcript files, or just a title.
 
-## Important Quality Expectation
+## Philosophy
 
-- The generated transcript is a **working draft**, not final publish-ready text.
-- Even with official transcripts/subtitles, punctuation, speaker labels, names, and domain terms may still need fixes.
-- Always run one proofreading pass with a strong LLM before sharing/publishing.
+Audio locks you in. Text sets you free.
+
+You can't annotate a voice memo. You can't skim a conversation, or put two interviews side by side and find where they contradict, or jump straight to the moment you half-remember from three weeks ago. The medium shapes what thinking is even possible.
+
+A transcript doesn't replace the listening. It opens a different kind of access — one where you move at your own pace, mark what matters, combine fragments across sources. That's not a small thing.
+
+This tool exists to make sure the text exists. Locally. Without sending your audio somewhere else first.
+
+[@一龙小包子](https://x.com/KingJing001) · 关心 AI，更关心人类
+
+## Output Quality
+
+Every run produces a `.meta.json` alongside the `.txt` — it tells you exactly how the transcript was sourced. Official transcripts and subtitles are clean enough to read immediately. ASR output is a working draft: run one LLM proofreading pass before publishing. The tool always tells you which is which.
 
 ## Recommended User Prompt (Copy-Paste)
 
@@ -40,7 +49,7 @@ cd podcast-transcript-txt-skill
 python3 -m pip install -r requirements.txt
 python3 scripts/podcast_transcript_txt.py --doctor
 python3 scripts/podcast_transcript_txt.py \
-  --input "https://www.youtube.com/watch?v=aR20FWCCjAs" \
+  --input "https://www.youtube.com/watch?v=n1E9IZfvGMA" \
   --out-dir "/tmp/transcripts"
 ```
 
@@ -128,7 +137,7 @@ Single input:
 
 ```bash
 python3 scripts/podcast_transcript_txt.py \
-  --input "https://www.youtube.com/watch?v=aR20FWCCjAs" \
+  --input "https://www.youtube.com/watch?v=n1E9IZfvGMA" \
   --out-dir "/tmp/transcripts"
 ```
 
@@ -136,9 +145,9 @@ Batch input:
 
 ```bash
 python3 scripts/podcast_transcript_txt.py \
-  --input "https://www.youtube.com/watch?v=aR20FWCCjAs" \
-  --input "https://www.youtube.com/watch?v=0-LAT4HjWPo" \
-  --input "Naval podcast On Artificial Intelligence" \
+  --input "https://www.youtube.com/watch?v=n1E9IZfvGMA" \
+  --input "https://www.youtube.com/watch?v=n1E9IZfvGMA" \
+  --input "Dario Amodei — We are near the end of the exponential" \
   --out-dir "/tmp/transcripts"
 ```
 
@@ -285,16 +294,6 @@ See:
 ## License
 
 MIT. See [`LICENSE`](./LICENSE).
-
-## Philosophy
-
-Audio locks you in. Text sets you free.
-
-You can't annotate a voice memo. You can't skim a conversation, or put two interviews side by side and find where they contradict, or jump straight to the moment you half-remember from three weeks ago. The medium shapes what thinking is even possible.
-
-A transcript doesn't replace the listening. It opens a different kind of access — one where you move at your own pace, mark what matters, combine fragments across sources. That's not a small thing.
-
-This tool exists to make sure the text exists. Locally. Without sending your audio somewhere else first.
 
 欢迎关注 [@一龙小包子](https://x.com/KingJing001)
 关心 AI，更关心人类

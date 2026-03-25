@@ -85,7 +85,7 @@ Run (recommended stable usage):
 
 ```bash
 python3 scripts/podcast_transcript_txt.py \
-  --input "https://www.youtube.com/watch?v=aR20FWCCjAs" \
+  --input "https://www.youtube.com/watch?v=n1E9IZfvGMA" \
   --input "播客标题关键词" \
   --out-dir "/tmp/transcripts"
 ```
