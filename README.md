@@ -265,6 +265,7 @@ Recommended agent sequence:
 
 Typical integrations:
 - Claude Code
+- Codex (OpenAI)
 - Cursor Agent / Cline
 - OpenClaw（小龙虾）
 - Any agent runner that can execute shell commands
@@ -294,11 +295,6 @@ See:
 ## License
 
 MIT. See [`LICENSE`](./LICENSE).
-
-欢迎关注 [@一龙小包子](https://x.com/KingJing001)
-关心 AI，更关心人类
-提升智能，也磨练身体
-一手观察与思考，纯手工写作
 
 ## Author
 
