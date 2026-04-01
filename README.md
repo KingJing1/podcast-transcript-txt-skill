@@ -28,8 +28,8 @@ If audio fallback is needed, choose ASR model:
 - medium: slower, larger, usually better on names/terms
 
 Output will include both:
-1) transcript.txt
-2) transcript.meta.json (resolver + quality + attempts for debugging)
+1) `<podcast-name> - <title>.txt` or `<title>.txt`
+2) matching `.meta.json` (resolver + quality + attempts for debugging)
 
 Important: this transcript is a draft. Run one strong-LLM proofreading pass before publishing.
 ```
@@ -54,8 +54,9 @@ python3 scripts/podcast_transcript_txt.py \
 ```
 
 Output:
-- `<title> [<id>].txt`
-- `<title> [<id>].meta.json`
+- `<podcast-name> - <title>.txt` when podcast name is already available
+- otherwise `<title>.txt`
+- matching `.meta.json`
 
 ## Agent Quick Start
 

@@ -91,8 +91,9 @@ python3 scripts/podcast_transcript_txt.py \
 ```
 
 Outputs:
-- `<title> [<id>].txt`
-- `<title> [<id>].meta.json`
+- `<podcast-name> - <title>.txt` when podcast name is already available
+- otherwise `<title>.txt`
+- matching `.meta.json`
 
 ## Host-Specific Notes
 

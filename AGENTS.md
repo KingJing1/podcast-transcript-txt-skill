@@ -4,8 +4,9 @@
 
 Use this repository to export a podcast transcript as:
 
-- `<title> [<id>].txt`
-- `<title> [<id>].meta.json`
+- `<podcast-name> - <title>.txt` when podcast name is already available
+- otherwise `<title>.txt`
+- matching `.meta.json`
 
 The user will usually give you a link or a plain episode title.
 
