@@ -14,6 +14,14 @@ SPEC.loader.exec_module(MODULE)
 
 
 class ParserTests(unittest.TestCase):
+    def test_build_output_title_prefixes_podcast_name(self) -> None:
+        title = MODULE.build_output_title("Head of Claude Code", {"podcast_name": "Lenny's Podcast"})
+        self.assertEqual(title, "Lenny's Podcast - Head of Claude Code")
+
+    def test_build_output_title_skips_duplicate_prefix(self) -> None:
+        title = MODULE.build_output_title("Lenny's Podcast: Head of Claude Code", {"podcast_name": "Lenny's Podcast"})
+        self.assertEqual(title, "Lenny's Podcast: Head of Claude Code")
+
     def test_parse_ttml_transcript_text(self) -> None:
         payload = """<?xml version="1.0" encoding="UTF-8"?>
 <tt xmlns="http://www.w3.org/ns/ttml">
@@ -113,6 +121,7 @@ class ParserTests(unittest.TestCase):
                     "title": "YouTube Test",
                     "webpage_url": "https://www.youtube.com/watch?v=abcdefghijk",
                     "description": "",
+                    "channel_name": "Test Show",
                 },
             ), mock.patch.object(MODULE, "official_links_from_description", return_value=[]), mock.patch.object(
                 MODULE, "run_subtitle_pipeline", side_effect=RuntimeError("no subtitle file downloaded")
@@ -132,6 +141,7 @@ class ParserTests(unittest.TestCase):
 
             self.assertTrue(download_mock.called)
             self.assertEqual(txt_path.read_text(encoding="utf-8").strip(), "[00:00:01] Hello from ASR")
+            self.assertEqual(txt_path.name, "Test Show - YouTube Test.txt")
             meta_data = json.loads(meta_path.read_text(encoding="utf-8"))
             self.assertEqual(meta_data["resolver"], "youtube-id-asr")
             self.assertEqual(meta_data["asr"]["model"], "small")
@@ -191,6 +201,7 @@ class ParserTests(unittest.TestCase):
             youtube_mock.assert_not_called()
             self.assertTrue(txt_path.exists())
             self.assertTrue(meta_path.exists())
+            self.assertEqual(txt_path.name, "Best Show - Best Episode.txt")
 
 
 if __name__ == "__main__":

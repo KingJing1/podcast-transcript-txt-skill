@@ -8,8 +8,9 @@ Input types:
 - Plain title (resolve with ytsearch)
 
 Output:
-- <title> [<id>].txt
-- <title> [<id>].meta.json
+- <podcast-name> - <title>.txt (when podcast name is already available)
+- <title>.txt
+- matching .meta.json alongside the transcript
 """
 
 from __future__ import annotations
@@ -322,6 +323,7 @@ def youtube_metadata(ytdlp: str, target: str) -> Dict[str, str]:
     title = str(data.get("title") or "").strip()
     page_url = str(data.get("webpage_url") or "").strip()
     description = data.get("description") or ""
+    channel_name = str(data.get("channel") or data.get("uploader") or "").strip()
     if not (video_id and title and page_url):
         raise RuntimeError("yt-dlp metadata missing id/title/webpage_url")
     if not YOUTUBE_ID_RE.fullmatch(video_id):
@@ -333,6 +335,7 @@ def youtube_metadata(ytdlp: str, target: str) -> Dict[str, str]:
         "title": title,
         "webpage_url": page_url,
         "description": str(description),
+        "channel_name": channel_name,
     }
 
 
@@ -1395,8 +1398,21 @@ def links_from_x(url: str) -> List[str]:
     return out
 
 
+def build_output_title(title: str, meta: Dict[str, Any]) -> str:
+    clean_title = compact_ws(title) or "podcast episode"
+    podcast_name = compact_ws(str(meta.get("podcast_name") or ""))
+    if not podcast_name:
+        return clean_title
+
+    normalized_title = normalize_for_match(clean_title)
+    normalized_podcast = normalize_for_match(podcast_name)
+    if normalized_podcast and normalized_title.startswith(normalized_podcast):
+        return clean_title
+    return f"{podcast_name} - {clean_title}"
+
+
 def write_outputs(out_dir: Path, title: str, stable_id: str, lines: List[str], meta: dict) -> Tuple[Path, Path]:
-    base = f"{sanitize_filename(title)} [{stable_id}]"
+    base = sanitize_filename(build_output_title(title, meta))
     txt_path = out_dir / f"{base}.txt"
     meta_path = out_dir / f"{base}.meta.json"
     txt_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
@@ -1417,6 +1433,8 @@ def process_youtube_target(
     title = info["title"]
     page_url = info["webpage_url"]
     description = info.get("description", "")
+    if info.get("channel_name"):
+        meta["podcast_name"] = info["channel_name"]
 
     meta["source"] = page_url
     log_attempt(meta, "yt_metadata", True, f"resolved video {real_id}", source=page_url)
@@ -1692,6 +1710,8 @@ def process_item(
             meta["resolver"] = "title->scripod-api"
             meta["source"] = source
             meta["quality"] = m
+            if sp.get("collection_name"):
+                meta["podcast_name"] = sp["collection_name"]
             detail = f"matched episode {eid} from {sp['collection_name'] or 'podcast'}"
             log_attempt(meta, "title_scripod", True, detail, source=source)
             return write_outputs(out_dir, sp["track_name"], eid, lines, meta)
@@ -1718,6 +1738,8 @@ def process_item(
             src = ep["track_view_url"] or ep["feed_url"] or ep["episode_url"]
             detail = f"matched episode {ep['episode_guid']} from {ep['collection_name'] or 'podcast'}"
             log_attempt(meta, "title_itunes", True, detail, source=src)
+            if ep.get("collection_name"):
+                meta["podcast_name"] = ep["collection_name"]
             return process_audio_url_target(
                 ep["episode_url"],
                 ep["track_name"],
