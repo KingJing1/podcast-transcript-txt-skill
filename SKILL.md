@@ -45,9 +45,10 @@ All transcript outputs are working drafts; always recommend one strong-LLM proof
 - Keep paragraph-level readability.
 - Write one TXT file per input item.
 
-6. Speaker draft (optional post-process — run after step 5 when transcript is ready).
+6. Post-process (optional — run after step 5 when transcript is ready).
 - Trigger: always run this step. Do not wait for the user to ask.
 - Input: the transcript from step 5 + `meta.json` (title, description, shownotes, chapters).
+- Optionally generate `<same-base-name>.body-cleaned.txt`: remove only pure ads / pure housekeeping / pure subscribe reminders, keep all substantive conversation verbatim, and prefer this file for `*.speaker-draft.txt` when present.
 - Extract speaker hints from metadata: episode title, guest name mentions, intro/outro text.
 - Re-read the transcript and annotate each paragraph with the most likely speaker.
 - Format each turn as `[Name]: text`. If uncertain, use `[?]: text`.

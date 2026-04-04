@@ -245,14 +245,7 @@ python3 scripts/podcast_transcript_txt.py --bootstrap-models small
 
 ## Post-process (recommended)
 
-When output comes from ASR, do a quick proofreading pass with a strong LLM.
-This usually fixes names/terms fast without re-running heavy transcription.
-
-Suggested one-line instruction:
-
-```text
-Proofread this draft transcript with minimal edits: fix obvious homophone errors and punctuation, keep meaning unchanged, keep paragraph order unchanged.
-```
+Optionally generate `<same-base-name>.body-cleaned.txt`: remove only pure ads / pure housekeeping / pure subscribe reminders, keep all substantive conversation verbatim, prefer this file for `*.speaker-draft.txt`, and never overwrite the original `*.txt`.
 
 ## Agent Integration
 
