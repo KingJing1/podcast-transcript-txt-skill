@@ -226,7 +226,7 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(info["webpage_url"], "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         self.assertEqual(info["channel_name"], "Rick Astley")
 
-    def test_parse_scripod_transcript_fetches_title_fallback(self) -> None:
+    def test_process_item_direct_scripod_enriches_output_filename(self) -> None:
         transcript_json = json.dumps({
             "segments": [{"speaker": 0, "sentences": [{"start": 0.0, "text": "Hello world"}]}],
             "speakers": {"0": "Host"}
@@ -243,11 +243,53 @@ class ParserTests(unittest.TestCase):
                 return episode_json
             raise RuntimeError(f"unexpected url: {url}")
 
-        with mock.patch.object(MODULE, "http_get", side_effect=fake_http_get):
-            eid, title, lines = MODULE.parse_scripod_transcript("https://scripod.com/episode/abc123xyz")
-        self.assertEqual(eid, "abc123xyz")
-        self.assertEqual(title, "Real Episode Title")
-        self.assertEqual(lines, ["[00:00:00] Host: Hello world"])
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(
+            MODULE, "http_get", side_effect=fake_http_get
+        ) as http_get_mock:
+            txt_path, meta_path = MODULE.process_item(
+                "https://scripod.com/episode/abc123xyz",
+                Path(td),
+                ytdlp=None,
+                asr_model="small",
+                page_text_fallback="auto",
+            )
+
+            self.assertEqual(txt_path.name, "Show Name - Real Episode Title.txt")
+            self.assertEqual(txt_path.read_text(encoding="utf-8"), "[00:00:00] Host: Hello world\n")
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            self.assertEqual(meta["podcast_name"], "Show Name")
+            public_calls = [
+                call for call in http_get_mock.call_args_list
+                if "/api/public/episode/" in call.args[0]
+            ]
+            self.assertEqual(len(public_calls), 1)
+
+    def test_process_item_direct_scripod_falls_back_when_episode_info_fails(self) -> None:
+        transcript_json = json.dumps({
+            "segments": [{"speaker": 0, "sentences": [{"start": 0.0, "text": "Hello world"}]}],
+            "speakers": {"0": "Host"}
+        })
+
+        def fake_http_get(url: str, timeout: int = 30) -> str:
+            if "/api/transcript/" in url:
+                return transcript_json
+            if "/api/public/episode/" in url:
+                raise RuntimeError("episode metadata unavailable")
+            raise RuntimeError(f"unexpected url: {url}")
+
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(
+            MODULE, "http_get", side_effect=fake_http_get
+        ):
+            txt_path, meta_path = MODULE.process_item(
+                "https://scripod.com/episode/abc123xyz",
+                Path(td),
+                ytdlp=None,
+                asr_model="small",
+                page_text_fallback="auto",
+            )
+
+            self.assertEqual(txt_path.name, "abc123xyz.txt")
+            self.assertTrue(meta_path.exists())
 
 
 if __name__ == "__main__":

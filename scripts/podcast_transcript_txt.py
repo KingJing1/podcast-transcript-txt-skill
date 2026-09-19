@@ -265,11 +265,6 @@ def resolve_model_arg(asr_model: str) -> Tuple[str, str, Path, Path]:
     model_arg = hf_model_id_from_choice(asr_model)
     cache_dir = hf_cache_dir_for_model(asr_model, model_root)
     if cache_dir.exists():
-        if (cache_dir / "model.bin").exists():
-            return str(cache_dir), "persistent-cache-hit", model_root, cache_dir
-        snapshots = list(cache_dir.glob("snapshots/*"))
-        if snapshots and (snapshots[0] / "model.bin").exists():
-            return str(snapshots[0]), "persistent-cache-hit", model_root, cache_dir
         return model_arg, "persistent-cache-hit", model_root, cache_dir
     return model_arg, "persistent-cache-miss", model_root, cache_dir
 
@@ -632,10 +627,7 @@ def parse_scripod_transcript(url: str) -> Tuple[str, str, List[str]]:
         raise RuntimeError("invalid scripod episode url")
     api = f"https://scripod.com/api/transcript/{eid}"
     data = json.loads(http_get(api))
-    title = data.get("title")
-    if not title:
-        info = fetch_scripod_episode_info(eid)
-        title = info.get("title") or eid
+    title = data.get("title") or eid
     speakers: Dict[str, str] = data.get("speakers", {}) or {}
     lines: List[str] = []
     for seg in data.get("segments", []):
