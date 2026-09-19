@@ -265,6 +265,11 @@ def resolve_model_arg(asr_model: str) -> Tuple[str, str, Path, Path]:
     model_arg = hf_model_id_from_choice(asr_model)
     cache_dir = hf_cache_dir_for_model(asr_model, model_root)
     if cache_dir.exists():
+        if (cache_dir / "model.bin").exists():
+            return str(cache_dir), "persistent-cache-hit", model_root, cache_dir
+        snapshots = list(cache_dir.glob("snapshots/*"))
+        if snapshots and (snapshots[0] / "model.bin").exists():
+            return str(snapshots[0]), "persistent-cache-hit", model_root, cache_dir
         return model_arg, "persistent-cache-hit", model_root, cache_dir
     return model_arg, "persistent-cache-miss", model_root, cache_dir
 
@@ -318,6 +323,12 @@ def youtube_metadata(ytdlp: str, target: str) -> Dict[str, str]:
         raise RuntimeError(f"invalid yt-dlp json: {e}") from e
     if not isinstance(data, dict):
         raise RuntimeError("unexpected yt-dlp metadata payload type")
+
+    if isinstance(data.get("entries"), list):
+        entries = [e for e in data["entries"] if isinstance(e, dict)]
+        if not entries:
+            raise RuntimeError("yt-dlp playlist/search returned empty entries")
+        data = entries[0]
 
     video_id = str(data.get("id") or "").strip()
     title = str(data.get("title") or "").strip()
@@ -603,13 +614,28 @@ def scripod_episode_id(url: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def fetch_scripod_episode_info(eid: str) -> Dict[str, str]:
+    try:
+        url = f"https://scripod.com/api/public/episode/{eid}"
+        data = json.loads(http_get(url, timeout=15))
+        title = str(data.get("title") or "").strip()
+        channel = data.get("channel") or {}
+        channel_title = str(channel.get("title") or "").strip() if isinstance(channel, dict) else ""
+        return {"title": title, "channel_title": channel_title}
+    except Exception:
+        return {}
+
+
 def parse_scripod_transcript(url: str) -> Tuple[str, str, List[str]]:
     eid = scripod_episode_id(url)
     if not eid:
         raise RuntimeError("invalid scripod episode url")
     api = f"https://scripod.com/api/transcript/{eid}"
     data = json.loads(http_get(api))
-    title = data.get("title") or eid
+    title = data.get("title")
+    if not title:
+        info = fetch_scripod_episode_info(eid)
+        title = info.get("title") or eid
     speakers: Dict[str, str] = data.get("speakers", {}) or {}
     lines: List[str] = []
     for seg in data.get("segments", []):
@@ -1576,6 +1602,11 @@ def process_item(
     if is_url(raw) and "scripod.com/episode/" in raw:
         try:
             eid, title, lines = parse_scripod_transcript(raw)
+            info = fetch_scripod_episode_info(eid)
+            if info.get("channel_title") and not meta.get("podcast_name"):
+                meta["podcast_name"] = info["channel_title"]
+            if info.get("title") and (not title or title == eid):
+                title = info["title"]
             m = quality_metrics(lines)
             meta["resolver"] = "scripod-api"
             meta["source"] = f"https://scripod.com/api/transcript/{eid}"

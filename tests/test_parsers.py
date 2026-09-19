@@ -203,6 +203,52 @@ class ParserTests(unittest.TestCase):
             self.assertTrue(meta_path.exists())
             self.assertEqual(txt_path.name, "Best Show - Best Episode.txt")
 
+    def test_youtube_metadata_unwraps_search_entries(self) -> None:
+        fake_payload = {
+            "_type": "playlist",
+            "id": "ytsearch1:fake query",
+            "title": "ytsearch1:fake query",
+            "entries": [
+                {
+                    "id": "dQw4w9WgXcQ",
+                    "title": "Rick Astley - Never Gonna Give You Up",
+                    "webpage_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    "description": "official music video",
+                    "channel": "Rick Astley",
+                }
+            ],
+        }
+        fake_process = mock.Mock(returncode=0, stdout=json.dumps(fake_payload), stderr="")
+        with mock.patch.object(MODULE, "run", return_value=fake_process):
+            info = MODULE.youtube_metadata("yt-dlp", "ytsearch1:fake query")
+        self.assertEqual(info["id"], "dQw4w9WgXcQ")
+        self.assertEqual(info["title"], "Rick Astley - Never Gonna Give You Up")
+        self.assertEqual(info["webpage_url"], "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        self.assertEqual(info["channel_name"], "Rick Astley")
+
+    def test_parse_scripod_transcript_fetches_title_fallback(self) -> None:
+        transcript_json = json.dumps({
+            "segments": [{"speaker": 0, "sentences": [{"start": 0.0, "text": "Hello world"}]}],
+            "speakers": {"0": "Host"}
+        })
+        episode_json = json.dumps({
+            "title": "Real Episode Title",
+            "channel": {"title": "Show Name"}
+        })
+
+        def fake_http_get(url: str, timeout: int = 30) -> str:
+            if "/api/transcript/" in url:
+                return transcript_json
+            if "/api/public/episode/" in url:
+                return episode_json
+            raise RuntimeError(f"unexpected url: {url}")
+
+        with mock.patch.object(MODULE, "http_get", side_effect=fake_http_get):
+            eid, title, lines = MODULE.parse_scripod_transcript("https://scripod.com/episode/abc123xyz")
+        self.assertEqual(eid, "abc123xyz")
+        self.assertEqual(title, "Real Episode Title")
+        self.assertEqual(lines, ["[00:00:00] Host: Hello world"])
+
 
 if __name__ == "__main__":
     unittest.main()
