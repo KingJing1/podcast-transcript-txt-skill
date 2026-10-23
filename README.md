@@ -1,5 +1,7 @@
 # Podcast Transcript TXT Skill
 
+[![AgentShield Security](https://merx.help/badge/A+.svg)](https://merx.help/shield)
+
 Turn any podcast source into clean `.txt` — YouTube, episode webpages, Xiaoyuzhou, Apple Podcasts, X links, official transcript files, or just a title.
 
 ## Philosophy
